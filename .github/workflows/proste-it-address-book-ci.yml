@@ -43,13 +43,16 @@ jobs:
 
       - name: Check formatting
         working-directory: flutter
-        run: >-
-          dart format --output=none --set-exit-if-changed
-          lib/common/widgets/support_address_book.dart
-          lib/models/support_address_book_model.dart
-          lib/models/support_secure_storage.dart
-          lib/models/support_secure_storage_io.dart
-          lib/models/support_secure_storage_stub.dart
+        run: |
+          files=(
+            lib/common/widgets/support_address_book.dart
+            lib/models/support_address_book_model.dart
+            lib/models/support_secure_storage.dart
+            lib/models/support_secure_storage_io.dart
+            lib/models/support_secure_storage_stub.dart
+          )
+          dart format "${files[@]}"
+          git diff --exit-code -- "${files[@]}"
 
       - name: Analyze address book models
         working-directory: flutter
