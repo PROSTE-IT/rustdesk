@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
+import 'package:flutter_hbb/models/support_address_book_model.dart';
 import 'package:get/get.dart';
 
 import '../common.dart';
@@ -16,19 +17,21 @@ enum PeerTabIndex {
   lan,
   ab,
   group,
+  supportBook,
 }
 
 class PeerTabModel with ChangeNotifier {
   WeakReference<FFI> parent;
   int get currentTab => _currentTab;
   int _currentTab = 0; // index in tabNames
-  static const int maxTabCount = 5;
+  static const int maxTabCount = 6;
   static const List<String> tabNames = [
     'Recent sessions',
     'Favorites',
     'Discovered',
     'Address book',
     'Accessible devices',
+    'Wspólna książka',
   ];
   static const List<IconData> icons = [
     Icons.access_time_filled,
@@ -36,6 +39,7 @@ class PeerTabModel with ChangeNotifier {
     Icons.explore,
     IconFont.addressBook,
     IconFont.deviceGroupFill,
+    Icons.corporate_fare,
   ];
   List<bool> isEnabled = List.from([
     true,
@@ -43,6 +47,7 @@ class PeerTabModel with ChangeNotifier {
     !isWeb && bind.mainGetLocalOption(key: "disable-discovery-panel") != "Y",
     !(bind.isDisableAb() || bind.isDisableAccount()),
     !(bind.isDisableGroupPanel() || bind.isDisableAccount()),
+    isDesktop && supportAddressBookApiUrl.trim().isNotEmpty,
   ]);
   final List<bool> _isVisible = List.filled(maxTabCount, true, growable: false);
   List<bool> get isVisibleEnabled => () {

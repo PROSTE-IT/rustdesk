@@ -441,6 +441,8 @@ abstract class BasePeersView extends StatelessWidget {
       case PeerTabIndex.group:
         peers = gFFI.groupModel.peersModel;
         break;
+      case PeerTabIndex.supportBook:
+        throw StateError('Support book uses its dedicated grouped view.');
     }
     return _PeersView(
         peers: peers,

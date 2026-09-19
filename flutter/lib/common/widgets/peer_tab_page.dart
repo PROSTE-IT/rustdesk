@@ -7,6 +7,7 @@ import 'package:flutter_hbb/common/widgets/dialog.dart';
 import 'package:flutter_hbb/common/widgets/my_group.dart';
 import 'package:flutter_hbb/common/widgets/peers_view.dart';
 import 'package:flutter_hbb/common/widgets/peer_card.dart';
+import 'package:flutter_hbb/common/widgets/support_address_book.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/widgets/popup_menu.dart';
 import 'package:flutter_hbb/desktop/widgets/material_mod_popup_menu.dart'
@@ -66,6 +67,7 @@ class _PeerTabPageState extends State<PeerTabPage>
       ),
       ({dynamic hint}) => gFFI.groupModel.pull(force: hint == null),
     ),
+    _TabEntry(const SupportAddressBook()),
   ];
   RelativeRect? mobileTabContextMenuPos;
 
@@ -552,7 +554,10 @@ class _PeerTabPageState extends State<PeerTabPage>
   List<Widget> _landscapeRightActions(BuildContext context) {
     final model = Provider.of<PeerTabModel>(context);
     return [
-      const PeerSearchBar().marginOnly(right: 13),
+      Offstage(
+        offstage: model.currentTab == PeerTabIndex.supportBook.index,
+        child: const PeerSearchBar(),
+      ).marginOnly(right: 13),
       _createRefresh(
           index: PeerTabIndex.ab, loading: gFFI.abModel.currentAbLoading),
       _createRefresh(
@@ -561,9 +566,13 @@ class _PeerTabPageState extends State<PeerTabPage>
         offstage: model.currentTabCachedPeers.isEmpty,
         child: _createMultiSelection(),
       ),
-      _createPeerViewTypeSwitch(context),
       Offstage(
-        offstage: model.currentTab == PeerTabIndex.recent.index,
+        offstage: model.currentTab == PeerTabIndex.supportBook.index,
+        child: _createPeerViewTypeSwitch(context),
+      ),
+      Offstage(
+        offstage: model.currentTab == PeerTabIndex.recent.index ||
+            model.currentTab == PeerTabIndex.supportBook.index,
         child: PeerSortDropdown(),
       ),
       Offstage(
@@ -619,7 +628,8 @@ class _PeerTabPageState extends State<PeerTabPage>
 
     // Always show search, refresh
     List<Widget> actions = [
-      const PeerSearchBar(),
+      if (model.currentTab != PeerTabIndex.supportBook.index)
+        const PeerSearchBar(),
       if (model.currentTab == PeerTabIndex.ab.index)
         _createRefresh(
             index: PeerTabIndex.ab, loading: gFFI.abModel.currentAbLoading),
@@ -629,7 +639,9 @@ class _PeerTabPageState extends State<PeerTabPage>
     ];
     final List<Widget> dynamicActions = [
       if (model.currentTabCachedPeers.isNotEmpty) _createMultiSelection(),
-      if (model.currentTab != PeerTabIndex.recent.index) PeerSortDropdown(),
+      if (model.currentTab != PeerTabIndex.recent.index &&
+          model.currentTab != PeerTabIndex.supportBook.index)
+        PeerSortDropdown(),
       if (model.currentTab == PeerTabIndex.ab.index) _toggleTags()
     ];
     final rightWidth = availableWidth -

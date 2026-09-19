@@ -1,0 +1,58 @@
+name: PROSTE IT address book CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/shared-address-book-client
+    paths:
+      - build.py
+      - flutter/lib/common/widgets/support_address_book.dart
+      - flutter/lib/common/widgets/peer_card.dart
+      - flutter/lib/common/widgets/peer_tab_page.dart
+      - flutter/lib/common/widgets/peers_view.dart
+      - flutter/lib/desktop/pages/remote_page.dart
+      - flutter/lib/models/model.dart
+      - flutter/lib/models/peer_tab_model.dart
+      - flutter/lib/models/support_address_book_model.dart
+      - .github/workflows/proste-it-address-book-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.24.5
+          cache: true
+
+      - name: Install dependencies
+        working-directory: flutter
+        run: flutter pub get
+
+      - name: Check formatting
+        working-directory: flutter
+        run: >-
+          dart format --output=none --set-exit-if-changed
+          lib/common/widgets/support_address_book.dart
+          lib/models/support_address_book_model.dart
+
+      - name: Analyze address book model
+        working-directory: flutter
+        run: dart analyze lib/models/support_address_book_model.dart
+
+      - name: Analyze address book UI
+        working-directory: flutter
+        run: dart analyze lib/common/widgets/support_address_book.dart
+
+      - name: Validate Python build script
+        run: python -m py_compile build.py

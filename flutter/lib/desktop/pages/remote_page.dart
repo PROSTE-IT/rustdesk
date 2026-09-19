@@ -11,6 +11,7 @@ import 'package:flutter_hbb/models/state_model.dart';
 import '../../consts.dart';
 import '../../common/widgets/overlay.dart';
 import '../../common/widgets/remote_input.dart';
+import '../../common/widgets/support_address_book.dart';
 import '../../common.dart';
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/toolbar.dart';
@@ -352,6 +353,8 @@ class _RemotePageState extends State<RemotePage>
   @override
   Future<void> dispose() async {
     final closeSession = closeSessionOnDispose.remove(widget.id) ?? true;
+    final offerSupportAddressBook =
+        closeSession && _ffi.ffiModel.connectionReady;
 
     // https://github.com/flutter/flutter/issues/64935
     super.dispose();
@@ -383,6 +386,9 @@ class _RemotePageState extends State<RemotePage>
     await _ffi.close(closeSession: closeSession);
     _timer?.cancel();
     _ffi.dialogManager.dismissAll();
+    if (offerSupportAddressBook) {
+      queueSupportAddressBookPrompt(widget.id);
+    }
     if (closeSession) {
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
           overlays: SystemUiOverlay.values);
