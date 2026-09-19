@@ -224,8 +224,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
               Tooltip(
                 message: 'Wyloguj',
                 child: IconButton(
-                  onPressed: () =>
-                      unawaited(supportAddressBookModel.logout()),
+                  onPressed: () => unawaited(supportAddressBookModel.logout()),
                   icon: const Icon(Icons.logout),
                 ),
               ),
@@ -380,7 +379,8 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                 _cardRow('Użytkownik', card.device.remoteUsername),
                 _cardRow('System', card.device.platform),
                 _cardRow('Wersja RustDesk', card.device.rustdeskVersion),
-                _cardRow('Monitory', card.device.displayCount?.toString() ?? ''),
+                _cardRow(
+                    'Monitory', card.device.displayCount?.toString() ?? ''),
                 _cardRow('Ostatni technik', card.device.lastConnectedByName),
                 _cardRow('Ostatnia sesja',
                     _formatSupportDate(card.device.lastConnectedAt)),
@@ -403,7 +403,8 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                       title: Text(
                         session.technician?.displayName.isNotEmpty == true
                             ? session.technician!.displayName
-                            : session.technician?.username ?? 'Nieznany technik',
+                            : session.technician?.username ??
+                                'Nieznany technik',
                       ),
                       subtitle: Text(
                         '${_formatSupportDate(session.startedAt)}'
@@ -424,8 +425,8 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
             FilledButton.icon(
               onPressed: () {
                 Navigator.pop(dialogContext);
-                connectInPeerTab(context, card.device.toPeer(),
-                    PeerTabIndex.supportBook);
+                connectInPeerTab(
+                    context, card.device.toPeer(), PeerTabIndex.supportBook);
               },
               icon: const Icon(Icons.link),
               label: const Text('Połącz'),
@@ -820,16 +821,17 @@ void queueSupportAddressBookPrompt(
   void compare(String label, String oldValue, Object? detected) {
     final newValue = detected?.toString() ?? '';
     if (newValue.isNotEmpty && newValue != oldValue) {
-      differences.add(
-          '$label: ${oldValue.isEmpty ? '(brak)' : oldValue} → $newValue');
+      differences
+          .add('$label: ${oldValue.isEmpty ? '(brak)' : oldValue} → $newValue');
     }
   }
+
   if (previous != null) {
     compare('Hostname', previous.hostname, telemetry['peer_hostname']);
     compare('Użytkownik', previous.remoteUsername, telemetry['peer_username']);
     compare('System', previous.platform, telemetry['peer_platform']);
-    compare('Wersja RustDesk',
-        previous.rustdeskVersion, telemetry['peer_version']);
+    compare(
+        'Wersja RustDesk', previous.rustdeskVersion, telemetry['peer_version']);
     compare('Liczba monitorów', previous.displayCount?.toString() ?? '',
         telemetry['display_count']);
   }

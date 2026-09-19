@@ -78,7 +78,8 @@ class SupportDevice {
   });
 
   factory SupportDevice.fromJson(Map<String, dynamic> json) {
-    DateTime? date(String key) => DateTime.tryParse(json[key]?.toString() ?? '');
+    DateTime? date(String key) =>
+        DateTime.tryParse(json[key]?.toString() ?? '');
     return SupportDevice(
       id: json['id']?.toString() ?? '',
       customerId: json['customer']?.toString() ?? '',
@@ -173,8 +174,7 @@ class SupportSessionSummary {
       technician: technician is Map
           ? SupportTechnician.fromJson(Map<String, dynamic>.from(technician))
           : null,
-      technicianDeviceName:
-          json['technician_device_name']?.toString() ?? '',
+      technicianDeviceName: json['technician_device_name']?.toString() ?? '',
       startedAt: DateTime.tryParse(json['started_at']?.toString() ?? ''),
       endedAt: DateTime.tryParse(json['ended_at']?.toString() ?? ''),
       outcome: json['outcome']?.toString() ?? '',
@@ -299,10 +299,12 @@ class SupportAddressBookModel with ChangeNotifier {
       if (savedToken != null && savedToken.isNotEmpty) {
         _token = savedToken;
         try {
-          final response = await http.get(
-            _uri('api/auth/device/me/'),
-            headers: _headers(),
-          ).timeout(const Duration(seconds: 3));
+          final response = await http
+              .get(
+                _uri('api/auth/device/me/'),
+                headers: _headers(),
+              )
+              .timeout(const Duration(seconds: 3));
           final body = _requireSuccess(response);
           if (body is Map && body['technician'] is Map) {
             _technician = SupportTechnician.fromJson(
@@ -346,9 +348,8 @@ class SupportAddressBookModel with ChangeNotifier {
             'Serwer nie zwrócił tokenu logowania.');
       }
       _token = token;
-      _tokenType = body is Map
-          ? body['token_type']?.toString() ?? 'Device'
-          : 'Device';
+      _tokenType =
+          body is Map ? body['token_type']?.toString() ?? 'Device' : 'Device';
       if (body is Map && body['technician'] is Map) {
         _technician = SupportTechnician.fromJson(
           Map<String, dynamic>.from(body['technician'] as Map),
@@ -559,8 +560,8 @@ class SupportAddressBookModel with ChangeNotifier {
     List<SupportSessionSummary> sessions(String key) =>
         (body[key] as List? ?? const [])
             .whereType<Map>()
-            .map((item) => SupportSessionSummary.fromJson(
-                Map<String, dynamic>.from(item)))
+            .map((item) =>
+                SupportSessionSummary.fromJson(Map<String, dynamic>.from(item)))
             .toList();
     return SupportDeviceCardData(
       device: SupportDevice.fromJson(
@@ -583,8 +584,8 @@ class SupportAddressBookModel with ChangeNotifier {
     return SupportPresence(
       (sessions ?? const [])
           .whereType<Map>()
-          .map((item) => SupportSessionSummary.fromJson(
-              Map<String, dynamic>.from(item)))
+          .map((item) =>
+              SupportSessionSummary.fromJson(Map<String, dynamic>.from(item)))
           .where((item) => item.technician?.id != currentTechnicianId)
           .toList(),
     );
@@ -698,7 +699,8 @@ class SupportAddressBookModel with ChangeNotifier {
     await _persistEventQueue();
   }
 
-  Future<void> _removeProcessedEvent(Map<String, dynamic> processedEvent) async {
+  Future<void> _removeProcessedEvent(
+      Map<String, dynamic> processedEvent) async {
     final processedId = processedEvent['event_id']?.toString() ?? '';
     if (processedId.isEmpty) {
       _eventQueue.remove(processedEvent);
@@ -723,23 +725,29 @@ class SupportAddressBookModel with ChangeNotifier {
         late http.Response response;
         try {
           if (kind == 'start') {
-            response = await http.post(
-              _uri('api/v1/sessions/start/'),
-              headers: _headers(),
-              body: jsonEncode(payload),
-            ).timeout(const Duration(seconds: 10));
+            response = await http
+                .post(
+                  _uri('api/v1/sessions/start/'),
+                  headers: _headers(),
+                  body: jsonEncode(payload),
+                )
+                .timeout(const Duration(seconds: 10));
           } else if (kind == 'heartbeat') {
-            response = await http.post(
-              _uri('api/v1/sessions/$sessionId/heartbeat/'),
-              headers: _headers(),
-              body: jsonEncode(payload),
-            ).timeout(const Duration(seconds: 10));
+            response = await http
+                .post(
+                  _uri('api/v1/sessions/$sessionId/heartbeat/'),
+                  headers: _headers(),
+                  body: jsonEncode(payload),
+                )
+                .timeout(const Duration(seconds: 10));
           } else if (kind == 'end') {
-            response = await http.post(
-              _uri('api/v1/sessions/$sessionId/end/'),
-              headers: _headers(),
-              body: jsonEncode(payload),
-            ).timeout(const Duration(seconds: 10));
+            response = await http
+                .post(
+                  _uri('api/v1/sessions/$sessionId/end/'),
+                  headers: _headers(),
+                  body: jsonEncode(payload),
+                )
+                .timeout(const Duration(seconds: 10));
           } else {
             await _removeProcessedEvent(event);
             continue;
@@ -807,7 +815,6 @@ class SupportAddressBookModel with ChangeNotifier {
     }
   }
 
-
   Future<void> _markDevicesOnline(List<String> rustdeskIds) async {
     try {
       final response = await http.post(
@@ -820,6 +827,7 @@ class SupportAddressBookModel with ChangeNotifier {
       debugPrint('Failed to update RDBK online timestamps: $error');
     }
   }
+
   void _setLoading(bool value) {
     if (_loading == value) return;
     _loading = value;

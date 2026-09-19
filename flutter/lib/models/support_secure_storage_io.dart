@@ -90,7 +90,7 @@ Uint8List _runDpapi(Uint8List input, {required bool protect}) {
       ..data = inputBytes;
     final result = protect
         ? crypt32.lookupFunction<_CryptProtectDataNative,
-                _CryptProtectDataDart>('CryptProtectData')(
+            _CryptProtectDataDart>('CryptProtectData')(
             inputBlob,
             nullptr,
             nullptr,
@@ -100,7 +100,7 @@ Uint8List _runDpapi(Uint8List input, {required bool protect}) {
             outputBlob,
           )
         : crypt32.lookupFunction<_CryptUnprotectDataNative,
-                _CryptUnprotectDataDart>('CryptUnprotectData')(
+            _CryptUnprotectDataDart>('CryptUnprotectData')(
             inputBlob,
             description,
             nullptr,
@@ -151,8 +151,8 @@ Future<String?> readSupportDeviceToken() async {
 Future<void> writeSupportDeviceToken(String token) async {
   if (!Platform.isWindows) return;
   final file = await _file(_tokenFileName);
-  final protected = _runDpapi(Uint8List.fromList(utf8.encode(token)),
-      protect: true);
+  final protected =
+      _runDpapi(Uint8List.fromList(utf8.encode(token)), protect: true);
   await file.writeAsString(base64Encode(protected), flush: true);
 }
 
