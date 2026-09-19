@@ -590,15 +590,19 @@ void queueSupportAddressBookPrompt(String rustdeskId) {
   Future<void>.delayed(const Duration(milliseconds: 350), () async {
     try {
       final existing = await supportAddressBookModel.lookup(rustdeskId);
-      if (existing != null) return;
       final context = globalKey.currentContext;
       if (context == null || !context.mounted) return;
-      final shouldAdd = await showDialog<bool>(
+      final shouldEdit = await showDialog<bool>(
             context: context,
             builder: (dialogContext) => AlertDialog(
-              title: const Text('Dodać do książki adresowej?'),
+              title: Text(existing == null
+                  ? 'Dodać do książki adresowej?'
+                  : 'Zaktualizować wpis w książce?'),
               content: Text(
-                  'Zakończono sesję z urządzeniem $rustdeskId. Czy dodać je do wspólnej książki?'),
+                existing == null
+                    ? 'Zakończono sesję z urządzeniem $rustdeskId. Czy dodać je do wspólnej książki?'
+                    : 'Zakończono sesję z urządzeniem ${existing.customerName}: ${existing.name} ($rustdeskId). Czy zaktualizować jego dane?',
+              ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(dialogContext, false),
@@ -606,17 +610,18 @@ void queueSupportAddressBookPrompt(String rustdeskId) {
                 ),
                 FilledButton(
                   onPressed: () => Navigator.pop(dialogContext, true),
-                  child: const Text('Tak'),
+                  child: Text(existing == null ? 'Dodaj' : 'Edytuj'),
                 ),
               ],
             ),
           ) ??
           false;
       final currentContext = globalKey.currentContext;
-      if (shouldAdd && currentContext != null && currentContext.mounted) {
+      if (shouldEdit && currentContext != null && currentContext.mounted) {
         await showSupportDeviceDialog(
           currentContext,
-          rustdeskId: rustdeskId,
+          device: existing,
+          rustdeskId: existing == null ? rustdeskId : null,
         );
       }
     } catch (error) {
