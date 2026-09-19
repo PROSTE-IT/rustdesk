@@ -62,7 +62,6 @@ jobs:
             lib/common/widgets/peer_tab_page.dart \
             lib/common/widgets/peers_view.dart \
             lib/desktop/pages/remote_page.dart \
-            lib/models/model.dart \
             lib/models/peer_tab_model.dart; do
             dart analyze "$source"
           done
