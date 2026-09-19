@@ -14,6 +14,7 @@ import 'package:flutter_hbb/desktop/widgets/tabbar_widget.dart';
 import 'package:flutter_hbb/main.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
 import 'package:flutter_hbb/models/peer_tab_model.dart';
+import 'package:flutter_hbb/models/support_address_book_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
 import 'package:flutter_hbb/utils/platform_channel.dart';
@@ -2601,6 +2602,71 @@ connect(BuildContext context, String id,
     } catch (_) {}
   }
   id = id.replaceAll(' ', '');
+
+  final isInteractiveSupportSession = !isFileTransfer &&
+      !isViewCamera &&
+      !isTerminal &&
+      !isTcpTunneling &&
+      !isRDP;
+  if (isInteractiveSupportSession && supportAddressBookModel.enabled) {
+    try {
+      await supportAddressBookModel
+          .ensureInitialized()
+          .timeout(const Duration(seconds: 3));
+    } catch (error) {
+      if (!supportAddressBookModel.isAuthenticated) {
+        if (context.mounted) {
+          await _showSupportLoginRequired(context, verificationFailed: true);
+        }
+        return;
+      }
+      debugPrint('RDBK token validation is offline; using saved token: $error');
+    }
+    if (!supportAddressBookModel.isAuthenticated) {
+      if (context.mounted) await _showSupportLoginRequired(context);
+      return;
+    }
+    try {
+      final active = await supportAddressBookModel
+          .presence(id)
+          .timeout(const Duration(seconds: 3));
+      if (active.occupied && context.mounted) {
+        final technicians = active.sessions
+            .map((session) =>
+                session.technician?.displayName.isNotEmpty == true
+                    ? session.technician!.displayName
+                    : session.technician?.username ?? 'inny technik')
+            .toSet()
+            .join(', ');
+        final proceed = await showDialog<bool>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('Inny technik jest już połączony'),
+                content: Text(
+                    '$technicians prowadzi aktywną sesję z urządzeniem $id. Czy mimo to kontynuować?'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext, false),
+                    child: const Text('Anuluj'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(dialogContext, true),
+                    child: const Text('Połącz mimo to'),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+        if (!proceed) return;
+      }
+    } catch (error) {
+      debugPrint('RDBK presence check is offline; connection continues: $error');
+      if (!supportAddressBookModel.isAuthenticated) {
+        if (context.mounted) await _showSupportLoginRequired(context);
+        return;
+      }
+    }
+  }
   final oldId = id;
   id = await bind.mainHandleRelayId(id: id);
   forceRelay = id != oldId || forceRelay;
@@ -2739,6 +2805,34 @@ connect(BuildContext context, String id,
   if (!currentFocus.hasPrimaryFocus) {
     currentFocus.unfocus();
   }
+}
+
+Future<void> _showSupportLoginRequired(
+  BuildContext context, {
+  bool verificationFailed = false,
+}) async {
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Wymagane logowanie technika'),
+      content: Text(verificationFailed
+          ? 'Nie udało się potwierdzić logowania i na tym stanowisku nie ma aktywnego tokenu urządzenia. Otwórz kartę wspólnej książki adresowej i zaloguj się.'
+          : 'Przed pierwszym połączeniem zaloguj się w karcie wspólnej książki adresowej. Hasło nie jest zapisywane; kolejne uruchomienia użyją tokenu urządzenia chronionego przez Windows.'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Anuluj'),
+        ),
+        FilledButton(
+          onPressed: () {
+            Navigator.pop(dialogContext);
+            gFFI.peerTabModel.setCurrentTab(PeerTabIndex.supportBook.index);
+          },
+          child: const Text('Przejdź do logowania'),
+        ),
+      ],
+    ),
+  );
 }
 
 Map<String, String> getHttpHeaders() {

@@ -18,6 +18,7 @@ import '../../common/widgets/toolbar.dart';
 import '../../models/model.dart';
 import '../../models/input_model.dart';
 import '../../models/platform_model.dart';
+import '../../models/support_address_book_model.dart';
 import '../../common/shared_state.dart';
 import '../../utils/image.dart';
 import '../widgets/remote_toolbar.dart';
@@ -79,6 +80,12 @@ class _RemotePageState extends State<RemotePage>
         MultiWindowListener,
         TickerProviderStateMixin {
   Timer? _timer;
+  Timer? _supportSessionStartRetryTimer;
+  String? _supportSessionId;
+  Future<String?>? _supportSessionStartFuture;
+  bool _supportSessionStarting = false;
+  bool _supportDisposing = false;
+  bool _supportSessionEnded = false;
   String keyboardMode = "legacy";
   bool _isWindowBlur = false;
   final _cursorOverImage = false.obs;
@@ -186,10 +193,103 @@ class _RemotePageState extends State<RemotePage>
     _waylandKeyboardModeWorker = ever(_ffi.ffiModel.pi.isSet, (bool isSet) {
       if (isSet) {
         unawaited(_normalizeWaylandKeyboardModeIfNeeded());
+        unawaited(_startSupportSession());
       }
     });
     if (_ffi.ffiModel.pi.isSet.value) {
       unawaited(_normalizeWaylandKeyboardModeIfNeeded());
+      unawaited(_startSupportSession());
+    }
+  }
+
+  Map<String, dynamic> _supportTelemetry() {
+    final peer = _ffi.ffiModel.pi;
+    return {
+      'peer_hostname': peer.hostname,
+      'peer_username': peer.username,
+      'peer_platform': peer.platform,
+      'peer_version': peer.version,
+      'display_count': peer.displays.length,
+    };
+  }
+
+  void _scheduleSupportSessionStartRetry() {
+    if (_supportSessionStartRetryTimer != null || _supportDisposing) return;
+    _supportSessionStartRetryTimer =
+        Timer.periodic(const Duration(milliseconds: 500), (timer) {
+      if (!mounted ||
+          _supportDisposing ||
+          _supportSessionId != null ||
+          !supportAddressBookModel.enabled) {
+        timer.cancel();
+        _supportSessionStartRetryTimer = null;
+        return;
+      }
+      if (_ffi.ffiModel.connectionReady) {
+        timer.cancel();
+        _supportSessionStartRetryTimer = null;
+        unawaited(_startSupportSession());
+      }
+    });
+  }
+
+  Future<void> _endSupportSessionOnce(
+    String supportSessionId,
+    Map<String, dynamic> telemetry,
+  ) async {
+    if (_supportSessionEnded) return;
+    _supportSessionEnded = true;
+    await supportAddressBookModel.endSupportSession(
+      supportSessionId,
+      telemetry,
+    );
+  }
+
+  Future<void> _startSupportSession() async {
+    if (_supportSessionStarting ||
+        _supportSessionId != null ||
+        _supportDisposing ||
+        !supportAddressBookModel.enabled) {
+      return;
+    }
+    if (!_ffi.ffiModel.connectionReady) {
+      _scheduleSupportSessionStartRetry();
+      return;
+    }
+    _supportSessionStartRetryTimer?.cancel();
+    _supportSessionStartRetryTimer = null;
+    _supportSessionStarting = true;
+    final telemetry = _supportTelemetry();
+    final startFuture = supportAddressBookModel.startSupportSession(
+      widget.id,
+      telemetry,
+    );
+    _supportSessionStartFuture = startFuture;
+    try {
+      final id = await startFuture;
+      if (id == null) return;
+      _supportSessionId = id;
+      if (_supportDisposing || !mounted) {
+        await _endSupportSessionOnce(id, telemetry);
+        return;
+      }
+      _timer?.cancel();
+      _timer = Timer.periodic(const Duration(seconds: 20), (_) {
+        final activeId = _supportSessionId;
+        if (activeId != null) {
+          unawaited(supportAddressBookModel.heartbeatSupportSession(
+            activeId,
+            _supportTelemetry(),
+          ));
+        }
+      });
+    } catch (error) {
+      debugPrint('Failed to start RDBK support session: $error');
+    } finally {
+      _supportSessionStarting = false;
+      if (identical(_supportSessionStartFuture, startFuture)) {
+        _supportSessionStartFuture = null;
+      }
     }
   }
 
@@ -355,6 +455,13 @@ class _RemotePageState extends State<RemotePage>
     final closeSession = closeSessionOnDispose.remove(widget.id) ?? true;
     final offerSupportAddressBook =
         closeSession && _ffi.ffiModel.connectionReady;
+    _supportDisposing = true;
+    final pendingSupportSessionStart = _supportSessionStartFuture;
+    var completedSupportSession = _supportSessionId;
+    final completedTelemetry = _supportTelemetry();
+    _supportSessionStartRetryTimer?.cancel();
+    _supportSessionStartRetryTimer = null;
+    _timer?.cancel();
 
     // https://github.com/flutter/flutter/issues/64935
     super.dispose();
@@ -383,11 +490,37 @@ class _RemotePageState extends State<RemotePage>
     if (closeSession) {
       clearWaylandKeyboardPromptSuppressedForConnection(sessionId.toString());
     }
+    if (offerSupportAddressBook && supportAddressBookModel.enabled) {
+      // Apply the same post-session protection to workstations and servers.
+      bind.sessionLockScreen(sessionId: sessionId);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
     await _ffi.close(closeSession: closeSession);
-    _timer?.cancel();
     _ffi.dialogManager.dismissAll();
+    if (completedSupportSession == null &&
+        pendingSupportSessionStart != null) {
+      try {
+        completedSupportSession = await pendingSupportSessionStart.timeout(
+          const Duration(seconds: 1),
+        );
+      } on TimeoutException {
+        debugPrint('Timed out waiting for local RDBK session start during close.');
+      } catch (error) {
+        debugPrint('RDBK session start failed during close: $error');
+      }
+    }
+    if (completedSupportSession != null) {
+      await _endSupportSessionOnce(
+        completedSupportSession,
+        completedTelemetry,
+      );
+    }
     if (offerSupportAddressBook) {
-      queueSupportAddressBookPrompt(widget.id);
+      queueSupportAddressBookPrompt(
+        widget.id,
+        supportSessionId: completedSupportSession,
+        telemetry: completedTelemetry,
+      );
     }
     if (closeSession) {
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,

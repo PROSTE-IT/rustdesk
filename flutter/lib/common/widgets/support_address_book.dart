@@ -35,9 +35,12 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
         unawaited(_silentRefresh());
       }
     });
-    if (supportAddressBookModel.isAuthenticated) {
-      unawaited(_refresh());
-    }
+    unawaited(_initialize());
+  }
+
+  Future<void> _initialize() async {
+    await supportAddressBookModel.ensureInitialized();
+    if (supportAddressBookModel.isAuthenticated) await _silentRefresh();
   }
 
   @override
@@ -95,6 +98,9 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
 
   @override
   Widget build(BuildContext context) {
+    if (!supportAddressBookModel.initialized) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (!supportAddressBookModel.isAuthenticated) {
       return _buildLogin();
     }
@@ -218,7 +224,8 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
               Tooltip(
                 message: 'Wyloguj',
                 child: IconButton(
-                  onPressed: supportAddressBookModel.logout,
+                  onPressed: () =>
+                      unawaited(supportAddressBookModel.logout()),
                   icon: const Icon(Icons.logout),
                 ),
               ),
@@ -309,9 +316,11 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
       title: Text(device.name),
       subtitle: Text(
         '${device.rustdeskId} • '
-        '${device.deviceType == 'server' ? 'Serwer' : 'Komputer'}'
+        '${device.deviceType == 'server' ? 'Serwer' : 'Komputer'} • '
+        '${device.online ? 'online' : 'offline'}'
+        '${device.lastSeen == null ? '' : ' • ostatnio ${_formatSupportDate(device.lastSeen)}'}'
         '${device.note.isEmpty ? '' : '\n${device.note}'}',
-        maxLines: 2,
+        maxLines: 3,
         overflow: TextOverflow.ellipsis,
       ),
       onTap: () => connectInPeerTab(
@@ -321,7 +330,9 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
       ),
       trailing: PopupMenuButton<String>(
         onSelected: (action) async {
-          if (action == 'edit') {
+          if (action == 'card') {
+            await _showDeviceCard(device);
+          } else if (action == 'edit') {
             await showSupportDeviceDialog(context, device: device);
           } else if (action == 'delete') {
             await _deleteDevice(device);
@@ -329,11 +340,107 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
         },
         itemBuilder: (_) => const [
           PopupMenuItem(value: 'edit', child: Text('Edytuj')),
+          PopupMenuItem(value: 'card', child: Text('Karta urządzenia')),
           PopupMenuItem(value: 'delete', child: Text('Usuń')),
         ],
       ),
     );
   }
+
+  Future<void> _showDeviceCard(SupportDevice device) async {
+    try {
+      final card = await supportAddressBookModel.deviceCard(device.id);
+      card.device.online = device.online;
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('${card.device.customerName}: ${card.device.name}'),
+          content: SizedBox(
+            width: 700,
+            height: 520,
+            child: ListView(
+              children: [
+                if (card.device.isCritical || card.device.warning.isNotEmpty)
+                  Card(
+                    color: Theme.of(dialogContext).colorScheme.errorContainer,
+                    child: ListTile(
+                      leading: const Icon(Icons.warning_amber_rounded),
+                      title: const Text('Ostrzeżenie krytyczne'),
+                      subtitle: Text(card.device.warning.isEmpty
+                          ? 'Urządzenie oznaczono jako krytyczne.'
+                          : card.device.warning),
+                    ),
+                  ),
+                _cardRow('ID RustDesk', card.device.rustdeskId),
+                _cardRow('Status', card.device.online ? 'online' : 'offline'),
+                _cardRow('Ostatnio widziany',
+                    _formatSupportDate(card.device.lastSeen)),
+                _cardRow('Hostname', card.device.hostname),
+                _cardRow('Użytkownik', card.device.remoteUsername),
+                _cardRow('System', card.device.platform),
+                _cardRow('Wersja RustDesk', card.device.rustdeskVersion),
+                _cardRow('Monitory', card.device.displayCount?.toString() ?? ''),
+                _cardRow('Ostatni technik', card.device.lastConnectedByName),
+                _cardRow('Ostatnia sesja',
+                    _formatSupportDate(card.device.lastConnectedAt)),
+                if (card.device.note.isNotEmpty)
+                  _cardRow('Notatka', card.device.note),
+                const Divider(height: 28),
+                Text('Historia sesji',
+                    style: Theme.of(dialogContext).textTheme.titleMedium),
+                if (card.sessions.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Text('Brak zarejestrowanych sesji.'),
+                  )
+                else
+                  ...card.sessions.map(
+                    (session) => ListTile(
+                      dense: true,
+                      leading: Icon(session.active ? Icons.link : Icons.history,
+                          color: session.active ? Colors.green : null),
+                      title: Text(
+                        session.technician?.displayName.isNotEmpty == true
+                            ? session.technician!.displayName
+                            : session.technician?.username ?? 'Nieznany technik',
+                      ),
+                      subtitle: Text(
+                        '${_formatSupportDate(session.startedAt)}'
+                        '${session.endedAt == null ? ' • aktywna' : ' – ${_formatSupportDate(session.endedAt)}'}'
+                        '${session.technicianDeviceName.isEmpty ? '' : '\n${session.technicianDeviceName}'}'
+                        '${session.note.isEmpty ? '' : '\n${session.note}'}',
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Zamknij'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                connectInPeerTab(context, card.device.toPeer(),
+                    PeerTabIndex.supportBook);
+              },
+              icon: const Icon(Icons.link),
+              label: const Text('Połącz'),
+            ),
+          ],
+        ),
+      );
+    } catch (error) {
+      _showError(error);
+    }
+  }
+
+  Widget _cardRow(String label, String value) => value.isEmpty
+      ? const SizedBox.shrink()
+      : ListTile(dense: true, title: Text(label), subtitle: Text(value));
 
   Future<void> _deleteDevice(SupportDevice device) async {
     final confirmed = await _confirm(
@@ -362,6 +469,14 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
       _showError(error);
     }
   }
+}
+
+String _formatSupportDate(DateTime? value) {
+  if (value == null) return '';
+  final local = value.toLocal();
+  String two(int part) => part.toString().padLeft(2, '0');
+  return '${two(local.day)}.${two(local.month)}.${local.year} '
+      '${two(local.hour)}:${two(local.minute)}';
 }
 
 Future<bool> _confirm(
@@ -579,18 +694,162 @@ Future<void> showSupportDeviceDialog(
   newCustomerController.dispose();
 }
 
+class _SupportSessionResult {
+  final String outcome;
+  final String note;
+  final String ticketReference;
+
+  const _SupportSessionResult({
+    required this.outcome,
+    required this.note,
+    required this.ticketReference,
+  });
+}
+
+Future<_SupportSessionResult?> _showSupportSessionResultDialog(
+  BuildContext context,
+) async {
+  final noteController = TextEditingController();
+  final ticketController = TextEditingController();
+  var outcome = 'pending';
+  try {
+    return await showDialog<_SupportSessionResult>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Podsumowanie sesji'),
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: outcome,
+                  decoration: const InputDecoration(labelText: 'Wynik'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'pending',
+                      child: Text('Nieuzupełniony'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'resolved',
+                      child: Text('Rozwiązano'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'follow_up',
+                      child: Text('Wymaga dalszych prac'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'escalated',
+                      child: Text('Przekazano dalej'),
+                    ),
+                  ],
+                  onChanged: (value) => setDialogState(
+                    () => outcome = value ?? 'pending',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: noteController,
+                  minLines: 3,
+                  maxLength: 4000,
+                  maxLines: 6,
+                  decoration: const InputDecoration(
+                    labelText: 'Notatka z sesji',
+                    alignLabelWithHint: true,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: ticketController,
+                  maxLength: 100,
+                  decoration: const InputDecoration(
+                    labelText: 'Numer zgłoszenia (opcjonalnie)',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Pomiń'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(
+                dialogContext,
+                _SupportSessionResult(
+                  outcome: outcome,
+                  note: noteController.text,
+                  ticketReference: ticketController.text,
+                ),
+              ),
+              child: const Text('Zapisz wynik'),
+            ),
+          ],
+        ),
+      ),
+    );
+  } finally {
+    noteController.dispose();
+    ticketController.dispose();
+  }
+}
+
 final Set<String> _pendingSessionPrompts = {};
 
-void queueSupportAddressBookPrompt(String rustdeskId) {
+void queueSupportAddressBookPrompt(
+  String rustdeskId, {
+  String? supportSessionId,
+  Map<String, dynamic> telemetry = const {},
+}) {
   if (supportAddressBookApiUrl.trim().isEmpty ||
       !supportAddressBookModel.isAuthenticated ||
       !_pendingSessionPrompts.add(rustdeskId)) {
     return;
   }
+  SupportDevice? previous;
+  for (final device in supportAddressBookModel.devices) {
+    if (device.rustdeskId == rustdeskId) {
+      previous = device;
+      break;
+    }
+  }
+  final differences = <String>[];
+  void compare(String label, String oldValue, Object? detected) {
+    final newValue = detected?.toString() ?? '';
+    if (newValue.isNotEmpty && newValue != oldValue) {
+      differences.add(
+          '$label: ${oldValue.isEmpty ? '(brak)' : oldValue} → $newValue');
+    }
+  }
+  if (previous != null) {
+    compare('Hostname', previous.hostname, telemetry['peer_hostname']);
+    compare('Użytkownik', previous.remoteUsername, telemetry['peer_username']);
+    compare('System', previous.platform, telemetry['peer_platform']);
+    compare('Wersja RustDesk',
+        previous.rustdeskVersion, telemetry['peer_version']);
+    compare('Liczba monitorów', previous.displayCount?.toString() ?? '',
+        telemetry['display_count']);
+  }
   Future<void>.delayed(const Duration(milliseconds: 350), () async {
     try {
+      var context = globalKey.currentContext;
+      if (context == null || !context.mounted) return;
+      if (supportSessionId != null) {
+        final result = await _showSupportSessionResultDialog(context);
+        if (result != null) {
+          await supportAddressBookModel.updateSupportSessionResult(
+            supportSessionId,
+            outcome: result.outcome,
+            note: result.note,
+            ticketReference: result.ticketReference,
+          );
+        }
+      }
       final existing = await supportAddressBookModel.lookup(rustdeskId);
-      final context = globalKey.currentContext;
+      context = globalKey.currentContext;
       if (context == null || !context.mounted) return;
       final shouldEdit = await showDialog<bool>(
             context: context,
@@ -601,7 +860,9 @@ void queueSupportAddressBookPrompt(String rustdeskId) {
               content: Text(
                 existing == null
                     ? 'Zakończono sesję z urządzeniem $rustdeskId. Czy dodać je do wspólnej książki?'
-                    : 'Zakończono sesję z urządzeniem ${existing.customerName}: ${existing.name} ($rustdeskId). Czy zaktualizować jego dane?',
+                    : 'Zakończono sesję z urządzeniem ${existing.customerName}: ${existing.name} ($rustdeskId).'
+                        '${differences.isEmpty ? '' : '\n\nWykryte różnice:\n${differences.join('\n')}'}'
+                        '\n\nCzy otworzyć formularz i zatwierdzić aktualizację wpisu?',
               ),
               actions: [
                 TextButton(

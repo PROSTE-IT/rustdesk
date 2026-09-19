@@ -7,6 +7,7 @@ on:
       - feature/shared-address-book-client
     paths:
       - build.py
+      - flutter/lib/common.dart
       - flutter/lib/common/widgets/support_address_book.dart
       - flutter/lib/common/widgets/peer_card.dart
       - flutter/lib/common/widgets/peer_tab_page.dart
@@ -16,6 +17,7 @@ on:
       - flutter/lib/models/peer_tab_model.dart
       - flutter/lib/models/support_address_book_model.dart
       - .github/workflows/proste-it-address-book-ci.yml
+      - flutter/lib/models/support_secure_storage*.dart
 
 permissions:
   contents: read
@@ -45,10 +47,20 @@ jobs:
           dart format --output=none --set-exit-if-changed
           lib/common/widgets/support_address_book.dart
           lib/models/support_address_book_model.dart
+          lib/models/support_secure_storage.dart
+          lib/models/support_secure_storage_io.dart
+          lib/models/support_secure_storage_stub.dart
 
-      - name: Analyze address book model
+      - name: Analyze address book models
         working-directory: flutter
-        run: dart analyze lib/models/support_address_book_model.dart
+        run: |
+          for source in \
+            lib/models/support_address_book_model.dart \
+            lib/models/support_secure_storage.dart \
+            lib/models/support_secure_storage_io.dart \
+            lib/models/support_secure_storage_stub.dart; do
+            dart analyze "$source"
+          done
 
       - name: Analyze address book UI
         working-directory: flutter
@@ -59,6 +71,7 @@ jobs:
         run: |
           for source in \
             lib/common/widgets/peer_card.dart \
+            lib/common.dart \
             lib/common/widgets/peer_tab_page.dart \
             lib/common/widgets/peers_view.dart \
             lib/desktop/pages/remote_page.dart \
