@@ -1438,6 +1438,11 @@ fn send_clipboard_msg_impl(msg: Message, _is_file: bool, except_session_id: Opti
         if !s.is_default() {
             continue;
         }
+        // PeerInfo answers a login the peer accepted; until it is in, the clipboard would go to
+        // a machine that has not admitted us.
+        if s.lc.read().unwrap().peer_info.is_none() {
+            continue;
+        }
         if let Some(except_session_id) = except_session_id {
             if s.lc.read().unwrap().session_id == except_session_id {
                 continue;
@@ -2379,5 +2384,66 @@ pub(super) mod async_tasks {
             super::APP_TYPE_MAIN,
             serde_json::ser::to_string(&data).unwrap_or("".to_owned()),
         );
+    }
+}
+
+#[cfg(test)]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod tests {
+    use super::*;
+    use hbb_common::tokio::sync::mpsc;
+
+    /// A default-connection session as `session_add` builds it, with the io loop's channel in
+    /// place so that what the session sends can be read back.
+    fn session(id: &str) -> (SessionID, FlutterSession, mpsc::UnboundedReceiver<Data>) {
+        let session: Session<FlutterHandler> = Session {
+            server_keyboard_enabled: Arc::new(RwLock::new(true)),
+            server_clipboard_enabled: Arc::new(RwLock::new(true)),
+            ..Default::default()
+        };
+        session.lc.write().unwrap().initialize(
+            id.to_owned(),
+            ConnType::DEFAULT_CONN,
+            None,
+            false,
+            get_adapter_luid(),
+            None,
+            None,
+        );
+        let (tx, rx) = mpsc::unbounded_channel();
+        *session.sender.write().unwrap() = Some(tx);
+        let session = Arc::new(session);
+        let session_id = SessionID::new_v4();
+        sessions::insert_session(session_id, ConnType::DEFAULT_CONN, session.clone());
+        (session_id, session, rx)
+    }
+
+    // The clipboard listener is shared by every session and starts with the first login, so a
+    // change reaches sessions still waiting on a password or the peer's consent: those get
+    // nothing until the PeerInfo answering their login is in.
+    #[test]
+    fn clipboard_goes_only_to_a_peer_that_accepted_the_login() {
+        let (accepted_id, accepted, mut accepted_rx) = session("clipboard-gate-accepted");
+        let (pending_id, pending, mut pending_rx) = session("clipboard-gate-pending");
+        accepted.lc.write().unwrap().peer_info = Some(PeerInfo::default());
+
+        let mut msg = Message::new();
+        msg.set_clipboard(Clipboard {
+            content: b"copied while one login is still pending".to_vec().into(),
+            ..Default::default()
+        });
+        send_clipboard_msg_impl(msg.clone(), false, None);
+        assert!(matches!(accepted_rx.try_recv(), Ok(Data::Message(_))));
+        assert!(
+            pending_rx.try_recv().is_err(),
+            "a login the peer has not accepted was sent the clipboard"
+        );
+
+        pending.lc.write().unwrap().peer_info = Some(PeerInfo::default());
+        send_clipboard_msg_impl(msg, false, None);
+        assert!(matches!(pending_rx.try_recv(), Ok(Data::Message(_))));
+
+        sessions::remove_session_by_session_id(&accepted_id);
+        sessions::remove_session_by_session_id(&pending_id);
     }
 }
