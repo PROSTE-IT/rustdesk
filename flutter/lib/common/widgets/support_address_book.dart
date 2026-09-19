@@ -143,7 +143,8 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                   const SizedBox(height: 12),
                   Text(
                     supportAddressBookModel.error!,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
                   ),
                 ],
                 const SizedBox(height: 20),
@@ -399,11 +400,11 @@ Future<void> showSupportDeviceDialog(
   final nameController = TextEditingController(text: device?.name ?? '');
   final noteController = TextEditingController(text: device?.note ?? '');
   final newCustomerController = TextEditingController();
-  String? customerId =
-      device?.customerId ?? initialCustomerId ??
-          (supportAddressBookModel.customers.isEmpty
-              ? null
-              : supportAddressBookModel.customers.first.id);
+  String? customerId = device?.customerId ??
+      initialCustomerId ??
+      (supportAddressBookModel.customers.isEmpty
+          ? null
+          : supportAddressBookModel.customers.first.id);
   var deviceType = device?.deviceType ?? 'computer';
   var saving = false;
   String? errorMessage;
@@ -432,8 +433,7 @@ Future<void> showSupportDeviceDialog(
                       .toList(),
                   onChanged: saving
                       ? null
-                      : (value) =>
-                          setDialogState(() => customerId = value),
+                      : (value) => setDialogState(() => customerId = value),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -449,8 +449,7 @@ Future<void> showSupportDeviceDialog(
                   controller: idController,
                   enabled: !saving,
                   keyboardType: TextInputType.number,
-                  decoration:
-                      const InputDecoration(labelText: 'ID RustDesk'),
+                  decoration: const InputDecoration(labelText: 'ID RustDesk'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -614,9 +613,7 @@ void queueSupportAddressBookPrompt(String rustdeskId) {
           ) ??
           false;
       final currentContext = globalKey.currentContext;
-      if (shouldAdd &&
-          currentContext != null &&
-          currentContext.mounted) {
+      if (shouldAdd && currentContext != null && currentContext.mounted) {
         await showSupportDeviceDialog(
           currentContext,
           rustdeskId: rustdeskId,

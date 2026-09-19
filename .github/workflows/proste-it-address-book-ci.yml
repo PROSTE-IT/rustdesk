@@ -39,20 +39,12 @@ jobs:
         working-directory: flutter
         run: flutter pub get
 
-      - name: Format address book sources
+      - name: Check formatting
         working-directory: flutter
         run: >-
-          dart format
+          dart format --output=none --set-exit-if-changed
           lib/common/widgets/support_address_book.dart
           lib/models/support_address_book_model.dart
-
-      - name: Upload formatted sources
-        uses: actions/upload-artifact@v4
-        with:
-          name: formatted-address-book-sources
-          path: |
-            flutter/lib/common/widgets/support_address_book.dart
-            flutter/lib/models/support_address_book_model.dart
 
       - name: Analyze address book model
         working-directory: flutter
