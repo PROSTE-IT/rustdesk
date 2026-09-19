@@ -54,5 +54,18 @@ jobs:
         working-directory: flutter
         run: dart analyze lib/common/widgets/support_address_book.dart
 
+      - name: Analyze integration hooks
+        working-directory: flutter
+        run: |
+          for source in \
+            lib/common/widgets/peer_card.dart \
+            lib/common/widgets/peer_tab_page.dart \
+            lib/common/widgets/peers_view.dart \
+            lib/desktop/pages/remote_page.dart \
+            lib/models/model.dart \
+            lib/models/peer_tab_model.dart; do
+            dart analyze "$source"
+          done
+
       - name: Validate Python build script
         run: python -m py_compile build.py
