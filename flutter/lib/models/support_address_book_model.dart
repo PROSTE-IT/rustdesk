@@ -277,7 +277,9 @@ class SupportAddressBookModel with ChangeNotifier {
     final body = _decode(response);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       if (response.statusCode == 401) {
-        unawaited(_clearAuthentication(clearQueue: true));
+        // Keep queued session events so a renewed token for this installation
+        // can safely retry them after the technician signs in again.
+        unawaited(_clearAuthentication(clearQueue: false));
       }
       throw SupportAddressBookException(_errorMessage(response, body));
     }
@@ -761,7 +763,7 @@ class SupportAddressBookModel with ChangeNotifier {
           continue;
         }
         if (response.statusCode == 401) {
-          await _clearAuthentication(clearQueue: true);
+          await _clearAuthentication(clearQueue: false);
           break;
         }
         if (response.statusCode >= 500) break;
