@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/common/widgets/animated_rotation_widget.dart';
 import 'package:flutter_hbb/common/widgets/custom_password.dart';
+import 'package:flutter_hbb/common/widgets/support_address_book.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/connection_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
@@ -697,6 +698,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(showPendingSupportAddressBookPrompt());
+    });
     _updateTimer = periodic_immediate(const Duration(seconds: 1), () async {
       await gFFI.serverModel.fetchID();
       final error = await bind.mainGetError();
@@ -798,6 +802,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         await rustDeskWinManager.registerActiveWindow(call.arguments["id"]);
       } else if (call.method == kWindowEventHide) {
         await rustDeskWinManager.unregisterActiveWindow(call.arguments['id']);
+      } else if (call.method == kWindowShowPostSessionPrompt) {
+        unawaited(showPendingSupportAddressBookPrompt());
       } else if (call.method == kWindowConnect) {
         await connectMainDesktop(
           call.arguments['id'],

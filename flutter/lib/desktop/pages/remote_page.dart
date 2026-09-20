@@ -21,6 +21,7 @@ import '../../models/platform_model.dart';
 import '../../models/support_address_book_model.dart';
 import '../../common/shared_state.dart';
 import '../../utils/image.dart';
+import '../../utils/multi_window_manager.dart';
 import '../widgets/remote_toolbar.dart';
 import '../widgets/kb_layout_type_chooser.dart';
 import '../widgets/tabbar_widget.dart';
@@ -81,11 +82,17 @@ class _RemotePageState extends State<RemotePage>
         TickerProviderStateMixin {
   Timer? _timer;
   Timer? _supportSessionStartRetryTimer;
-  String? _supportSessionId;
-  Future<String?>? _supportSessionStartFuture;
+  Timer? _supportServerProfileRetryTimer;
+  SupportSessionHandle? _supportSession;
+  Future<SupportSessionHandle?>? _supportSessionStartFuture;
   bool _supportSessionStarting = false;
   bool _supportDisposing = false;
   bool _supportSessionEnded = false;
+  bool _supportServerProfileApplying = false;
+  bool _supportServerImageProfileApplied = false;
+  bool _supportServerResolutionApplied = false;
+  bool? _supportPeerIsServer;
+  int _supportServerProfileAttempts = 0;
   String keyboardMode = "legacy";
   bool _isWindowBlur = false;
   final _cursorOverImage = false.obs;
@@ -194,23 +201,115 @@ class _RemotePageState extends State<RemotePage>
       if (isSet) {
         unawaited(_normalizeWaylandKeyboardModeIfNeeded());
         unawaited(_startSupportSession());
+        _scheduleSupportServerProfile();
       }
     });
     if (_ffi.ffiModel.pi.isSet.value) {
       unawaited(_normalizeWaylandKeyboardModeIfNeeded());
       unawaited(_startSupportSession());
+      _scheduleSupportServerProfile();
     }
   }
 
   Map<String, dynamic> _supportTelemetry() {
     final peer = _ffi.ffiModel.pi;
+    final display = peer.tryGetDisplay();
     return {
       'peer_hostname': peer.hostname,
       'peer_username': peer.username,
       'peer_platform': peer.platform,
       'peer_version': peer.version,
       'display_count': peer.displays.length,
+      'is_headless': peer.isHeadless,
+      'is_installed': peer.isInstalled,
+      'display_width': display?.width,
+      'display_height': display?.height,
     };
+  }
+
+  void _scheduleSupportServerProfile() {
+    if (_supportServerProfileRetryTimer != null ||
+        _supportServerResolutionApplied ||
+        _supportDisposing ||
+        !supportAddressBookModel.enabled) {
+      return;
+    }
+    unawaited(_applySupportServerProfileIfNeeded());
+    _supportServerProfileRetryTimer =
+        Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_supportDisposing ||
+          _supportServerResolutionApplied ||
+          _supportPeerIsServer == false ||
+          ++_supportServerProfileAttempts >= 15) {
+        timer.cancel();
+        _supportServerProfileRetryTimer = null;
+        return;
+      }
+      unawaited(_applySupportServerProfileIfNeeded());
+    });
+  }
+
+  Future<void> _applySupportServerProfileIfNeeded() async {
+    if (_supportServerProfileApplying ||
+        _supportServerResolutionApplied ||
+        _supportDisposing ||
+        !_ffi.ffiModel.connectionReady) {
+      return;
+    }
+    _supportServerProfileApplying = true;
+    try {
+      if (_supportPeerIsServer == null) {
+        final device = await supportAddressBookModel.lookup(widget.id);
+        _supportPeerIsServer = device?.deviceType == 'server';
+        if (_supportPeerIsServer != true) return;
+      }
+
+      if (!_supportServerImageProfileApplied) {
+        await bind.sessionSetImageQuality(
+          sessionId: sessionId,
+          value: kRemoteImageQualityBest,
+        );
+        await bind.sessionSetViewStyle(
+          sessionId: sessionId,
+          value: kRemoteViewStyleAdaptive,
+        );
+        await _ffi.canvasModel.updateViewStyle();
+        _supportServerImageProfileApplied = true;
+      }
+
+      final peer = _ffi.ffiModel.pi;
+      if (peer.currentDisplay == kAllDisplayValue || peer.resolutions.isEmpty) {
+        return;
+      }
+      final resolutions = peer.resolutions
+          .where((item) => item.width > 0 && item.height > 0)
+          .toList();
+      if (resolutions.isEmpty) return;
+      resolutions.sort((a, b) {
+        final area = (b.width * b.height).compareTo(a.width * a.height);
+        return area != 0 ? area : b.width.compareTo(a.width);
+      });
+      final highest = resolutions.first;
+      final display = peer.tryGetDisplay();
+      if (display == null ||
+          display.width != highest.width ||
+          display.height != highest.height) {
+        await bind.sessionChangeResolution(
+          sessionId: sessionId,
+          display: peer.currentDisplay,
+          width: highest.width,
+          height: highest.height,
+        );
+      }
+      _supportServerResolutionApplied = true;
+      _supportServerProfileRetryTimer?.cancel();
+      _supportServerProfileRetryTimer = null;
+    } catch (error, stackTrace) {
+      debugPrint('Failed to apply the RDBK server display profile: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    } finally {
+      _supportServerProfileApplying = false;
+    }
   }
 
   void _scheduleSupportSessionStartRetry() {
@@ -219,7 +318,7 @@ class _RemotePageState extends State<RemotePage>
         Timer.periodic(const Duration(milliseconds: 500), (timer) {
       if (!mounted ||
           _supportDisposing ||
-          _supportSessionId != null ||
+          _supportSession != null ||
           !supportAddressBookModel.enabled) {
         timer.cancel();
         _supportSessionStartRetryTimer = null;
@@ -234,20 +333,20 @@ class _RemotePageState extends State<RemotePage>
   }
 
   Future<void> _endSupportSessionOnce(
-    String supportSessionId,
+    SupportSessionHandle supportSession,
     Map<String, dynamic> telemetry,
   ) async {
     if (_supportSessionEnded) return;
     _supportSessionEnded = true;
     await supportAddressBookModel.endSupportSession(
-      supportSessionId,
+      supportSession.id,
       telemetry,
     );
   }
 
   Future<void> _startSupportSession() async {
     if (_supportSessionStarting ||
-        _supportSessionId != null ||
+        _supportSession != null ||
         _supportDisposing ||
         !supportAddressBookModel.enabled) {
       return;
@@ -266,19 +365,19 @@ class _RemotePageState extends State<RemotePage>
     );
     _supportSessionStartFuture = startFuture;
     try {
-      final id = await startFuture;
-      if (id == null) return;
-      _supportSessionId = id;
+      final supportSession = await startFuture;
+      if (supportSession == null) return;
+      _supportSession = supportSession;
       if (_supportDisposing || !mounted) {
-        await _endSupportSessionOnce(id, telemetry);
+        await _endSupportSessionOnce(supportSession, telemetry);
         return;
       }
       _timer?.cancel();
       _timer = Timer.periodic(const Duration(seconds: 20), (_) {
-        final activeId = _supportSessionId;
-        if (activeId != null) {
+        final activeSession = _supportSession;
+        if (activeSession != null) {
           unawaited(supportAddressBookModel.heartbeatSupportSession(
-            activeId,
+            activeSession.id,
             _supportTelemetry(),
           ));
         }
@@ -457,10 +556,22 @@ class _RemotePageState extends State<RemotePage>
         closeSession && _ffi.ffiModel.connectionReady;
     _supportDisposing = true;
     final pendingSupportSessionStart = _supportSessionStartFuture;
-    var completedSupportSession = _supportSessionId;
+    var completedSupportSession = _supportSession;
     final completedTelemetry = _supportTelemetry();
+    Future<void>? postSessionPromptWrite;
+    if (offerSupportAddressBook && completedSupportSession != null) {
+      // Persist the prompt before closing the FFI session/window. The main
+      // window can then display it even if this Flutter engine disappears.
+      postSessionPromptWrite = queueSupportAddressBookPrompt(
+        widget.id,
+        supportSession: completedSupportSession,
+        telemetry: completedTelemetry,
+      );
+    }
     _supportSessionStartRetryTimer?.cancel();
     _supportSessionStartRetryTimer = null;
+    _supportServerProfileRetryTimer?.cancel();
+    _supportServerProfileRetryTimer = null;
     _timer?.cancel();
 
     // https://github.com/flutter/flutter/issues/64935
@@ -497,14 +608,14 @@ class _RemotePageState extends State<RemotePage>
     }
     await _ffi.close(closeSession: closeSession);
     _ffi.dialogManager.dismissAll();
-    if (completedSupportSession == null &&
-        pendingSupportSessionStart != null) {
+    if (completedSupportSession == null && pendingSupportSessionStart != null) {
       try {
         completedSupportSession = await pendingSupportSessionStart.timeout(
           const Duration(seconds: 1),
         );
       } on TimeoutException {
-        debugPrint('Timed out waiting for local RDBK session start during close.');
+        debugPrint(
+            'Timed out waiting for local RDBK session start during close.');
       } catch (error) {
         debugPrint('RDBK session start failed during close: $error');
       }
@@ -516,11 +627,21 @@ class _RemotePageState extends State<RemotePage>
       );
     }
     if (offerSupportAddressBook) {
-      queueSupportAddressBookPrompt(
+      postSessionPromptWrite ??= queueSupportAddressBookPrompt(
         widget.id,
-        supportSessionId: completedSupportSession,
+        supportSession: completedSupportSession,
         telemetry: completedTelemetry,
       );
+      await postSessionPromptWrite;
+      if (isDesktop && desktopType != DesktopType.main) {
+        unawaited(rustDeskWinManager.call(
+          WindowType.Main,
+          kWindowShowPostSessionPrompt,
+          null,
+        ));
+      } else {
+        unawaited(showPendingSupportAddressBookPrompt());
+      }
     }
     if (closeSession) {
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,

@@ -22,3 +22,19 @@ Future<List<Map<String, dynamic>>> readSupportEventQueue() =>
 
 Future<void> writeSupportEventQueue(List<Map<String, dynamic>> events) =>
     implementation.writeSupportEventQueue(events);
+
+Future<List<Map<String, dynamic>>> readSupportPostSessionPrompts() =>
+    implementation.readSupportPostSessionPrompts();
+
+Future<void> writeSupportPostSessionPrompts(
+  List<Map<String, dynamic>> prompts,
+) =>
+    implementation.writeSupportPostSessionPrompts(prompts);
+
+Future<Map<String, String>> readSupportSessionSyncFailures() =>
+    implementation.readSupportSessionSyncFailures();
+
+Future<void> writeSupportSessionSyncFailures(
+  Map<String, String> failures,
+) =>
+    implementation.writeSupportSessionSyncFailures(failures);

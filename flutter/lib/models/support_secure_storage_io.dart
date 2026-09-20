@@ -57,6 +57,8 @@ const _cryptProtectUiForbidden = 0x1;
 const _tokenFileName = 'rdbk-device-token.dpapi';
 const _installationFileName = 'rdbk-installation-id';
 const _queueFileName = 'rdbk-event-queue.json';
+const _postSessionPromptsFileName = 'rdbk-post-session-prompts.json';
+const _sessionSyncFailuresFileName = 'rdbk-session-sync-failures.json';
 
 Future<Directory> _supportDirectory() async {
   final base = await getApplicationSupportDirectory();
@@ -190,4 +192,47 @@ Future<List<Map<String, dynamic>>> readSupportEventQueue() async {
 Future<void> writeSupportEventQueue(List<Map<String, dynamic>> events) async {
   final file = await _file(_queueFileName);
   await file.writeAsString(jsonEncode(events), flush: true);
+}
+
+Future<List<Map<String, dynamic>>> readSupportPostSessionPrompts() async {
+  final file = await _file(_postSessionPromptsFileName);
+  if (!await file.exists()) return [];
+  try {
+    final decoded = jsonDecode(await file.readAsString());
+    if (decoded is! List) return [];
+    return decoded
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  } catch (_) {
+    return [];
+  }
+}
+
+Future<void> writeSupportPostSessionPrompts(
+  List<Map<String, dynamic>> prompts,
+) async {
+  final file = await _file(_postSessionPromptsFileName);
+  await file.writeAsString(jsonEncode(prompts), flush: true);
+}
+
+Future<Map<String, String>> readSupportSessionSyncFailures() async {
+  final file = await _file(_sessionSyncFailuresFileName);
+  if (!await file.exists()) return {};
+  try {
+    final decoded = jsonDecode(await file.readAsString());
+    if (decoded is! Map) return {};
+    return decoded.map(
+      (key, value) => MapEntry(key.toString(), value.toString()),
+    );
+  } catch (_) {
+    return {};
+  }
+}
+
+Future<void> writeSupportSessionSyncFailures(
+  Map<String, String> failures,
+) async {
+  final file = await _file(_sessionSyncFailuresFileName);
+  await file.writeAsString(jsonEncode(failures), flush: true);
 }

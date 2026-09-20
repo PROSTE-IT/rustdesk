@@ -48,6 +48,10 @@ class SupportDevice {
   final String platform;
   final String rustdeskVersion;
   final int? displayCount;
+  final bool? isHeadless;
+  final bool? isInstalled;
+  final int? displayWidth;
+  final int? displayHeight;
   final DateTime? lastSeen;
   final DateTime? lastConnectedAt;
   final String lastConnectedByName;
@@ -69,6 +73,10 @@ class SupportDevice {
     required this.platform,
     required this.rustdeskVersion,
     required this.displayCount,
+    required this.isHeadless,
+    required this.isInstalled,
+    required this.displayWidth,
+    required this.displayHeight,
     required this.lastSeen,
     required this.lastConnectedAt,
     required this.lastConnectedByName,
@@ -94,6 +102,10 @@ class SupportDevice {
       platform: json['platform']?.toString() ?? '',
       rustdeskVersion: json['rustdesk_version']?.toString() ?? '',
       displayCount: json['display_count'] as int?,
+      isHeadless: json['is_headless'] as bool?,
+      isInstalled: json['is_installed'] as bool?,
+      displayWidth: json['display_width'] as int?,
+      displayHeight: json['display_height'] as int?,
       lastSeen: date('last_seen'),
       lastConnectedAt: date('last_connected_at'),
       lastConnectedByName: json['last_connected_by_name']?.toString() ?? '',
@@ -153,6 +165,7 @@ class SupportSessionSummary {
   final String outcome;
   final String note;
   final bool active;
+  final int durationSeconds;
 
   const SupportSessionSummary({
     required this.id,
@@ -164,6 +177,7 @@ class SupportSessionSummary {
     required this.outcome,
     required this.note,
     required this.active,
+    required this.durationSeconds,
   });
 
   factory SupportSessionSummary.fromJson(Map<String, dynamic> json) {
@@ -180,9 +194,66 @@ class SupportSessionSummary {
       outcome: json['outcome']?.toString() ?? '',
       note: json['note']?.toString() ?? '',
       active: json['active'] == true,
+      durationSeconds: json['duration_seconds'] as int? ?? 0,
     );
   }
 }
+
+class SupportSessionHandle {
+  final String id;
+  final DateTime startedAt;
+
+  const SupportSessionHandle({required this.id, required this.startedAt});
+}
+
+class SupportPostSessionPrompt {
+  final String id;
+  final String rustdeskId;
+  final String? supportSessionId;
+  final DateTime startedAt;
+  final DateTime endedAt;
+  final Map<String, dynamic> telemetry;
+
+  const SupportPostSessionPrompt({
+    required this.id,
+    required this.rustdeskId,
+    required this.supportSessionId,
+    required this.startedAt,
+    required this.endedAt,
+    required this.telemetry,
+  });
+
+  Duration get duration {
+    final value = endedAt.difference(startedAt);
+    return value.isNegative ? Duration.zero : value;
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'rustdesk_id': rustdeskId,
+        'support_session_id': supportSessionId,
+        'started_at': startedAt.toUtc().toIso8601String(),
+        'ended_at': endedAt.toUtc().toIso8601String(),
+        'telemetry': telemetry,
+      };
+
+  factory SupportPostSessionPrompt.fromJson(Map<String, dynamic> json) {
+    final startedAt = DateTime.tryParse(json['started_at']?.toString() ?? '');
+    final endedAt = DateTime.tryParse(json['ended_at']?.toString() ?? '');
+    return SupportPostSessionPrompt(
+      id: json['id']?.toString() ?? '',
+      rustdeskId: json['rustdesk_id']?.toString() ?? '',
+      supportSessionId: json['support_session_id']?.toString(),
+      startedAt: startedAt ?? DateTime.now().toUtc(),
+      endedAt: endedAt ?? DateTime.now().toUtc(),
+      telemetry: json['telemetry'] is Map
+          ? Map<String, dynamic>.from(json['telemetry'] as Map)
+          : const {},
+    );
+  }
+}
+
+enum SupportSessionSyncStatus { waiting, syncing, synced, failed, signedOut }
 
 class SupportDeviceCardData {
   final SupportDevice device;
@@ -217,9 +288,14 @@ class SupportAddressBookModel with ChangeNotifier {
   static const _onlineEvent = 'callback_query_onlines';
   static const _onlineHandler = 'proste_it_support_address_book';
   static const _queueLimit = 1000;
+  static const _syncFailureLimit = 1000;
 
   final List<Map<String, dynamic>> _eventQueue = [];
+  final List<SupportPostSessionPrompt> _postSessionPrompts = [];
+  final Map<String, String> _sessionSyncFailures = {};
   Future<void> _queueWrite = Future.value();
+  Future<void> _postSessionPromptWrite = Future.value();
+  Future<void> _sessionSyncFailuresWrite = Future.value();
   final Uuid _uuid = const Uuid();
   Future<void>? _initializing;
   bool _initialized = false;
@@ -243,6 +319,24 @@ class SupportAddressBookModel with ChangeNotifier {
   SupportTechnician? get technician => _technician;
   List<SupportCustomer> get customers => _customers;
   List<SupportDevice> get devices => _devices;
+  List<SupportPostSessionPrompt> get postSessionPrompts =>
+      List.unmodifiable(_postSessionPrompts);
+
+  SupportSessionSyncStatus syncStatusForSession(String sessionId) {
+    if (!isAuthenticated) return SupportSessionSyncStatus.signedOut;
+    if (_sessionSyncFailures.containsKey(sessionId)) {
+      return SupportSessionSyncStatus.failed;
+    }
+    if (_eventQueue.any((event) => event['session_id'] == sessionId)) {
+      return _flushing
+          ? SupportSessionSyncStatus.syncing
+          : SupportSessionSyncStatus.waiting;
+    }
+    return SupportSessionSyncStatus.synced;
+  }
+
+  String? syncErrorForSession(String sessionId) =>
+      _sessionSyncFailures[sessionId];
 
   Uri _uri(String path, [Map<String, String>? query]) {
     final base = supportAddressBookApiUrl.trim().replaceAll(RegExp(r'/+$'), '');
@@ -297,6 +391,15 @@ class SupportAddressBookModel with ChangeNotifier {
       _eventQueue
         ..clear()
         ..addAll(await readSupportEventQueue());
+      _postSessionPrompts
+        ..clear()
+        ..addAll((await readSupportPostSessionPrompts())
+            .map(SupportPostSessionPrompt.fromJson)
+            .where((prompt) =>
+                prompt.id.isNotEmpty && prompt.rustdeskId.isNotEmpty));
+      _sessionSyncFailures
+        ..clear()
+        ..addAll(await readSupportSessionSyncFailures());
       final savedToken = await readSupportDeviceToken();
       if (savedToken != null && savedToken.isNotEmpty) {
         _token = savedToken;
@@ -397,6 +500,10 @@ class SupportAddressBookModel with ChangeNotifier {
     if (clearQueue) {
       _eventQueue.clear();
       await _persistEventQueue();
+      _postSessionPrompts.clear();
+      await _persistPostSessionPrompts();
+      _sessionSyncFailures.clear();
+      await _persistSessionSyncFailures();
     }
     notifyListeners();
   }
@@ -593,13 +700,14 @@ class SupportAddressBookModel with ChangeNotifier {
     );
   }
 
-  Future<String?> startSupportSession(
+  Future<SupportSessionHandle?> startSupportSession(
     String rustdeskId,
     Map<String, dynamic> telemetry,
   ) async {
     await ensureInitialized();
     if (!isAuthenticated) return null;
     final sessionId = _uuid.v4();
+    final startedAt = DateTime.now().toUtc();
     await _enqueueEvent({
       'event_id': _uuid.v4(),
       'kind': 'start',
@@ -607,12 +715,12 @@ class SupportAddressBookModel with ChangeNotifier {
       'payload': {
         'session_id': sessionId,
         'rustdesk_id': rustdeskId,
-        'started_at': DateTime.now().toUtc().toIso8601String(),
+        'started_at': startedAt.toIso8601String(),
         ...telemetry,
       },
     });
     unawaited(flushEventQueue());
-    return sessionId;
+    return SupportSessionHandle(id: sessionId, startedAt: startedAt);
   }
 
   Future<void> heartbeatSupportSession(
@@ -683,6 +791,45 @@ class SupportAddressBookModel with ChangeNotifier {
     unawaited(flushEventQueue());
   }
 
+  Future<void> enqueuePostSessionPrompt(
+    SupportPostSessionPrompt prompt,
+  ) async {
+    await ensureInitialized();
+    if (_postSessionPrompts.any((item) => item.id == prompt.id)) return;
+    _postSessionPrompts.add(prompt);
+    await _persistPostSessionPrompts();
+    notifyListeners();
+  }
+
+  Future<void> reloadPostSessionState() async {
+    await ensureInitialized();
+    final prompts = (await readSupportPostSessionPrompts())
+        .map(SupportPostSessionPrompt.fromJson)
+        .where((prompt) => prompt.id.isNotEmpty && prompt.rustdeskId.isNotEmpty)
+        .toList();
+    final failures = await readSupportSessionSyncFailures();
+    final promptsChanged = prompts.length != _postSessionPrompts.length ||
+        prompts.any((prompt) =>
+            !_postSessionPrompts.any((current) => current.id == prompt.id));
+    final failuresChanged = !mapEquals(_sessionSyncFailures, failures);
+    if (!promptsChanged && !failuresChanged) return;
+    _postSessionPrompts
+      ..clear()
+      ..addAll(prompts);
+    _sessionSyncFailures
+      ..clear()
+      ..addAll(failures);
+    notifyListeners();
+  }
+
+  Future<void> completePostSessionPrompt(String promptId) async {
+    final hasPrompt = _postSessionPrompts.any((item) => item.id == promptId);
+    if (!hasPrompt) return;
+    _postSessionPrompts.removeWhere((item) => item.id == promptId);
+    await _persistPostSessionPrompts();
+    notifyListeners();
+  }
+
   Future<void> _persistEventQueue() {
     final snapshot = _eventQueue
         .map((event) => Map<String, dynamic>.from(event))
@@ -693,12 +840,47 @@ class SupportAddressBookModel with ChangeNotifier {
     return _queueWrite;
   }
 
+  Future<void> _persistPostSessionPrompts() {
+    final snapshot = _postSessionPrompts
+        .map((prompt) => prompt.toJson())
+        .toList(growable: false);
+    _postSessionPromptWrite = _postSessionPromptWrite
+        .catchError((_) {})
+        .then((_) => writeSupportPostSessionPrompts(snapshot));
+    return _postSessionPromptWrite;
+  }
+
+  Future<void> _persistSessionSyncFailures() {
+    final snapshot = Map<String, String>.from(_sessionSyncFailures);
+    _sessionSyncFailuresWrite = _sessionSyncFailuresWrite
+        .catchError((_) {})
+        .then((_) => writeSupportSessionSyncFailures(snapshot));
+    return _sessionSyncFailuresWrite;
+  }
+
+  Future<void> _recordSessionSyncFailure(
+    String sessionId,
+    String kind,
+    int statusCode,
+  ) async {
+    if (sessionId.isEmpty) return;
+    if (!_sessionSyncFailures.containsKey(sessionId) &&
+        _sessionSyncFailures.length >= _syncFailureLimit) {
+      _sessionSyncFailures.remove(_sessionSyncFailures.keys.first);
+    }
+    _sessionSyncFailures[sessionId] =
+        'Zdarzenie $kind odrzucone przez RDBK (HTTP $statusCode).';
+    await _persistSessionSyncFailures();
+    notifyListeners();
+  }
+
   Future<void> _enqueueEvent(Map<String, dynamic> event) async {
     _eventQueue.add(event);
     if (_eventQueue.length > _queueLimit) {
       _eventQueue.removeRange(0, _eventQueue.length - _queueLimit);
     }
     await _persistEventQueue();
+    notifyListeners();
   }
 
   Future<void> _removeProcessedEvent(
@@ -712,11 +894,13 @@ class SupportAddressBookModel with ChangeNotifier {
       );
     }
     await _persistEventQueue();
+    notifyListeners();
   }
 
   Future<void> flushEventQueue() async {
     if (_flushing || !isAuthenticated || _eventQueue.isEmpty) return;
     _flushing = true;
+    notifyListeners();
     try {
       while (isAuthenticated && _eventQueue.isNotEmpty) {
         final event = _eventQueue.first;
@@ -767,12 +951,14 @@ class SupportAddressBookModel with ChangeNotifier {
           break;
         }
         if (response.statusCode >= 500) break;
+        await _recordSessionSyncFailure(sessionId, kind, response.statusCode);
         debugPrint(
             'Dropping rejected support event $kind/$processedEventId (${response.statusCode}).');
         await _removeProcessedEvent(event);
       }
     } finally {
       _flushing = false;
+      notifyListeners();
     }
   }
 

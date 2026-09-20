@@ -62,6 +62,7 @@ const String kWindowDisableGrabKeyboard = "disable_grab_keyboard";
 const String kWindowActionRebuild = "rebuild";
 const String kWindowEventHide = "hide";
 const String kWindowEventShow = "show";
+const String kWindowShowPostSessionPrompt = "show_post_session_prompt";
 const String kWindowConnect = "connect";
 const String kWindowBumpMouse = "bump_mouse";
 
