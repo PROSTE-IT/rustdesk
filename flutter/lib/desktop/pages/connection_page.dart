@@ -9,6 +9,7 @@ import 'package:flutter_hbb/common/widgets/connection_page_title.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/widgets/popup_menu.dart';
 import 'package:flutter_hbb/models/state_model.dart';
+import 'package:flutter_hbb/models/support_address_book_model.dart';
 import 'package:get/get.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:window_manager/window_manager.dart';
@@ -52,6 +53,7 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   @override
   void initState() {
     super.initState();
+    unawaited(supportAddressBookModel.ensureInitialized());
     _updateTimer = periodic_immediate(Duration(seconds: 1), () async {
       updateStatus();
     });
@@ -134,6 +136,14 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
             // ready && public
             // No need to show the guide if is custom client.
             if (!isIncomingOnly) setupServerWidget(),
+            if (!isIncomingOnly && supportAddressBookModel.enabled) ...[
+              Container(
+                height: 20,
+                width: 1,
+                color: Theme.of(context).dividerColor,
+              ).marginSymmetric(horizontal: 12),
+              Flexible(child: _buildRdbkStatus(context)),
+            ],
           ],
         );
 
@@ -166,6 +176,67 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
       style: TextStyle(fontSize: em),
     );
   }
+
+  Widget _buildRdbkStatus(BuildContext context) => AnimatedBuilder(
+        animation: supportAddressBookModel,
+        builder: (context, _) {
+          final state = supportAddressBookModel.backendConnectionState;
+          late final Color color;
+          late final String label;
+          switch (state) {
+            case SupportBackendConnectionState.disabled:
+              color = Colors.grey;
+              label = 'RDBK: wyłączone';
+              break;
+            case SupportBackendConnectionState.signedOut:
+              color = kColorWarn;
+              label = 'RDBK: wymagane logowanie';
+              break;
+            case SupportBackendConnectionState.checking:
+              color = kColorWarn;
+              label = 'RDBK: łączenie';
+              break;
+            case SupportBackendConnectionState.connected:
+              color = const Color.fromARGB(255, 50, 190, 166);
+              label = 'RDBK: połączono';
+              break;
+            case SupportBackendConnectionState.offline:
+              color = const Color.fromARGB(255, 224, 79, 95);
+              label = 'RDBK: brak połączenia';
+              break;
+          }
+          final pending = supportAddressBookModel.pendingEventCount;
+          final error = supportAddressBookModel.error;
+          return Tooltip(
+            message: error?.isNotEmpty == true
+                ? error!
+                : 'Połączenie aplikacji technika z backendem RDBK',
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  height: 8,
+                  width: 8,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                const SizedBox(width: 7),
+                Text(label, style: TextStyle(fontSize: em)),
+                const SizedBox(width: 14),
+                Text(
+                  'Synchronizacja: $pending oczekujących',
+                  style: TextStyle(
+                    fontSize: em,
+                    color: pending == 0 ? null : kColorWarn,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
 
   updateStatus() async {
     final status =
@@ -346,7 +417,7 @@ class _ConnectionPageState extends State<ConnectionPage>
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
       decoration: BoxDecoration(
           borderRadius: const BorderRadius.all(Radius.circular(13)),
-          border: Border.all(color: Theme.of(context).colorScheme.background)),
+          border: Border.all(color: Theme.of(context).colorScheme.surface)),
       child: Ink(
         child: Column(
           children: [

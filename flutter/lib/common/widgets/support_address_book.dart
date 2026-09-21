@@ -8,6 +8,13 @@ import 'package:flutter_hbb/models/support_address_book_model.dart';
 
 enum _SupportDeviceFilter { all, online, offline, servers, computers }
 
+const _supportSessionSummaryPromptsEnabled = bool.fromEnvironment(
+  'RDBK_SESSION_SUMMARY_PROMPTS',
+  defaultValue: false,
+);
+
+const _newSupportCustomerValue = '__new_support_customer__';
+
 class SupportAddressBook extends StatefulWidget {
   const SupportAddressBook({Key? key}) : super(key: key);
 
@@ -517,108 +524,255 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
       margin: const EdgeInsets.only(bottom: 8),
       color: critical ? Theme.of(context).colorScheme.errorContainer : null,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final wide = constraints.maxWidth >= 940;
+            final identity = _buildDeviceIdentity(device, critical);
+            final details = _buildDeviceDetails(device);
+            return Stack(
               children: [
-                Icon(device.deviceType == 'server'
-                    ? Icons.dns_outlined
-                    : Icons.computer_outlined),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(device.name,
-                          style: Theme.of(context).textTheme.titleMedium),
-                      const SizedBox(height: 2),
-                      Text('${device.customerName} • ID ${device.rustdeskId}'),
-                    ],
-                  ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 36),
+                  child: wide
+                      ? Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(flex: 5, child: identity),
+                            const SizedBox(width: 16),
+                            Expanded(flex: 7, child: details),
+                          ],
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            identity,
+                            const SizedBox(height: 12),
+                            details,
+                          ],
+                        ),
                 ),
-                _deviceMenu(device),
+                Positioned(top: 0, right: 0, child: _deviceMenu(device)),
               ],
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                _deviceBadge(device.online ? 'Online' : 'Offline',
-                    device.online ? Colors.green : Colors.grey),
-                _deviceBadge(
-                    device.deviceType == 'server' ? 'Serwer' : 'Komputer',
-                    Theme.of(context).colorScheme.primary),
-                if (device.isHeadless == true)
-                  _deviceBadge(
-                      'Bez monitora', Theme.of(context).colorScheme.tertiary),
-                if (device.isInstalled == false)
-                  _deviceBadge('Tryb przenośny',
-                      Theme.of(context).colorScheme.secondary),
-                if (critical)
-                  _deviceBadge('Uwaga', Theme.of(context).colorScheme.error),
-              ],
-            ),
-            if (device.hostname.isNotEmpty ||
-                device.remoteUsername.isNotEmpty ||
-                device.note.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                [
-                  if (device.hostname.isNotEmpty) 'Host: ${device.hostname}',
-                  if (device.remoteUsername.isNotEmpty)
-                    'Użytkownik: ${device.remoteUsername}',
-                  if (device.note.isNotEmpty) device.note,
-                ].join(' • '),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-            if (device.displayWidth != null &&
-                device.displayHeight != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Ekran: ${device.displayWidth} × ${device.displayHeight}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-            if (critical && device.warning.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(device.warning,
-                  style: TextStyle(
-                      color: Theme.of(context).colorScheme.onErrorContainer)),
-            ],
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () => connectInPeerTab(
-                        context, device.toPeer(), PeerTabIndex.supportBook),
-                    icon: const Icon(Icons.link),
-                    label: const Text('Połącz'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    device.lastConnectedAt == null
-                        ? 'Brak historii połączeń'
-                        : 'Łączono: ${_formatSupportDate(device.lastConnectedAt)}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
   }
+
+  Widget _buildDeviceIdentity(SupportDevice device, bool critical) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(device.deviceType == 'server'
+                  ? Icons.dns_outlined
+                  : Icons.computer_outlined),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(device.name,
+                        style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 2),
+                    Text('${device.customerName} • ID ${device.rustdeskId}'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _deviceBadge(device.online ? 'Online' : 'Offline',
+                  device.online ? Colors.green : Colors.grey),
+              _deviceBadge(
+                  device.deviceType == 'server' ? 'Serwer' : 'Komputer',
+                  Theme.of(context).colorScheme.primary),
+              if (device.isInstalled != null)
+                _deviceBadge(
+                  device.isInstalled! ? 'Zainstalowany' : 'Przenośny',
+                  Theme.of(context).colorScheme.secondary,
+                ),
+              if (critical)
+                _deviceBadge('Uwaga', Theme.of(context).colorScheme.error),
+            ],
+          ),
+          if (device.hostname.isNotEmpty ||
+              device.remoteUsername.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              [
+                if (device.hostname.isNotEmpty) 'Host: ${device.hostname}',
+                if (device.remoteUsername.isNotEmpty)
+                  'Użytkownik: ${device.remoteUsername}',
+              ].join(' • '),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+          if (device.note.isNotEmpty) ...[
+            const SizedBox(height: 5),
+            Text(
+              device.note,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+          if (critical && device.warning.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              device.warning,
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onErrorContainer),
+            ),
+          ],
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () => connectInPeerTab(
+                  context, device.toPeer(), PeerTabIndex.supportBook),
+              icon: const Icon(Icons.link),
+              label: const Text('Połącz'),
+            ),
+          ),
+        ],
+      );
+
+  Widget _buildDeviceDetails(SupportDevice device) => LayoutBuilder(
+        builder: (context, constraints) {
+          final twoColumns = constraints.maxWidth >= 520;
+          final tileWidth = twoColumns
+              ? (constraints.maxWidth - 8) / 2
+              : constraints.maxWidth;
+          final display =
+              device.displayWidth != null && device.displayHeight != null
+                  ? '${device.displayWidth} × ${device.displayHeight}'
+                  : 'Brak rozdzielczości';
+          final displays = device.displayCount == null
+              ? 'Liczba ekranów nieznana'
+              : '${device.displayCount} ${_displayCountLabel(device.displayCount!)}';
+          final lastSession = device.lastConnectedAt == null
+              ? 'Brak historii połączeń'
+              : 'Sesja: ${_formatSupportDate(device.lastConnectedAt)}';
+          final technician = device.lastConnectedByName.isEmpty
+              ? ''
+              : 'Technik: ${device.lastConnectedByName}';
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _deviceInfoTile(
+                width: tileWidth,
+                icon: Icons.computer_outlined,
+                label: 'System',
+                primary: device.platform.isEmpty
+                    ? 'Brak danych o systemie'
+                    : device.platform,
+                secondary: device.hostname.isEmpty ? '' : device.hostname,
+              ),
+              _deviceInfoTile(
+                width: tileWidth,
+                icon: Icons.monitor_outlined,
+                label: 'Ekrany i klient',
+                primary: '$displays • $display',
+                secondary: device.rustdeskVersion.isEmpty
+                    ? 'Wersja RustDesk nieznana'
+                    : 'RustDesk ${device.rustdeskVersion}',
+              ),
+              _deviceInfoTile(
+                width: tileWidth,
+                icon: Icons.history,
+                label: 'Aktywność',
+                primary: device.lastSeen == null
+                    ? 'Brak danych o aktywności'
+                    : 'Widziany: ${_formatSupportDate(device.lastSeen)}',
+                secondary: [lastSession, technician]
+                    .where((v) => v.isNotEmpty)
+                    .join(' • '),
+              ),
+              _deviceInfoTile(
+                width: tileWidth,
+                icon: Icons.settings_applications_outlined,
+                label: 'Uruchomienie',
+                primary: device.isInstalled == null
+                    ? 'Tryb uruchomienia nieznany'
+                    : device.isInstalled!
+                        ? 'Klient zainstalowany'
+                        : 'Tryb przenośny',
+                secondary: device.isHeadless == null
+                    ? ''
+                    : device.isHeadless!
+                        ? 'Bez monitora'
+                        : 'Monitor dostępny',
+              ),
+            ],
+          );
+        },
+      );
+
+  String _displayCountLabel(int count) {
+    if (count == 1) return 'ekran';
+    final lastTwoDigits = count % 100;
+    final lastDigit = count % 10;
+    if (lastTwoDigits < 12 || lastTwoDigits > 14) {
+      if (lastDigit >= 2 && lastDigit <= 4) return 'ekrany';
+    }
+    return 'ekranów';
+  }
+
+  Widget _deviceInfoTile({
+    required double width,
+    required IconData icon,
+    required String label,
+    required String primary,
+    required String secondary,
+  }) =>
+      Container(
+        width: width,
+        constraints: const BoxConstraints(minHeight: 88),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 16),
+                const SizedBox(width: 7),
+                Text(label, style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+            const SizedBox(height: 7),
+            Text(
+              primary,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            if (secondary.isNotEmpty) ...[
+              const SizedBox(height: 3),
+              Text(
+                secondary,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+      );
 
   Widget _deviceBadge(String label, Color color) => Chip(
         avatar: Icon(Icons.circle, color: color, size: 10),
@@ -931,6 +1085,11 @@ Future<void> showSupportDeviceDialog(
       (supportAddressBookModel.customers.isEmpty
           ? null
           : supportAddressBookModel.customers.first.id);
+  if (customerId != null &&
+      !supportAddressBookModel.customers
+          .any((customer) => customer.id == customerId)) {
+    customerId = null;
+  }
   var deviceType = device?.deviceType ?? 'computer';
   var saving = false;
   String? errorMessage;
@@ -948,28 +1107,42 @@ Future<void> showSupportDeviceDialog(
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<String>(
-                  value: customerId,
+                  value: customerId ?? _newSupportCustomerValue,
                   isExpanded: true,
                   decoration: const InputDecoration(labelText: 'Klient'),
-                  items: supportAddressBookModel.customers
-                      .map((customer) => DropdownMenuItem(
-                            value: customer.id,
-                            child: Text(customer.name),
-                          ))
-                      .toList(),
+                  items: [
+                    ...supportAddressBookModel.customers.map(
+                      (customer) => DropdownMenuItem(
+                        value: customer.id,
+                        child: Text(customer.name),
+                      ),
+                    ),
+                    const DropdownMenuItem(
+                      value: _newSupportCustomerValue,
+                      child: Text('+ Utwórz nowego klienta'),
+                    ),
+                  ],
                   onChanged: saving
                       ? null
-                      : (value) => setDialogState(() => customerId = value),
+                      : (value) => setDialogState(() {
+                            customerId = value == _newSupportCustomerValue
+                                ? null
+                                : value;
+                          }),
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: newCustomerController,
-                  enabled: !saving,
-                  decoration: const InputDecoration(
-                    labelText: 'Lub utwórz nowego klienta',
-                    helperText: 'Wpisana nazwa ma pierwszeństwo przed listą.',
+                if (customerId == null) ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: newCustomerController,
+                    enabled: !saving,
+                    autofocus: supportAddressBookModel.customers.isEmpty,
+                    decoration: const InputDecoration(
+                      labelText: 'Nazwa nowego klienta',
+                      helperText:
+                          'Klient zostanie utworzony razem z urządzeniem.',
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 12),
                 TextField(
                   controller: idController,
@@ -1031,7 +1204,9 @@ Future<void> showSupportDeviceDialog(
                 : () async {
                     final id = idController.text.trim();
                     final name = nameController.text.trim();
-                    final newCustomer = newCustomerController.text.trim();
+                    final newCustomer = customerId == null
+                        ? newCustomerController.text.trim()
+                        : '';
                     if (!RegExp(r'^\d+$').hasMatch(id)) {
                       setDialogState(
                           () => errorMessage = 'ID musi zawierać tylko cyfry.');
@@ -1053,14 +1228,12 @@ Future<void> showSupportDeviceDialog(
                     });
                     try {
                       var selectedCustomerId = customerId;
-                      if (newCustomer.isNotEmpty) {
-                        selectedCustomerId = (await supportAddressBookModel
-                                .createCustomer(newCustomer))
-                            .id;
-                      }
+                      selectedCustomerId ??= (await supportAddressBookModel
+                              .createCustomer(newCustomer))
+                          .id;
                       if (device == null) {
                         await supportAddressBookModel.createDevice(
-                          customerId: selectedCustomerId!,
+                          customerId: selectedCustomerId,
                           rustdeskId: id,
                           name: name,
                           note: noteController.text,
@@ -1069,7 +1242,7 @@ Future<void> showSupportDeviceDialog(
                       } else {
                         await supportAddressBookModel.updateDevice(
                           device: device,
-                          customerId: selectedCustomerId!,
+                          customerId: selectedCustomerId,
                           rustdeskId: id,
                           name: name,
                           note: noteController.text,
@@ -1294,34 +1467,10 @@ Future<void> showPendingSupportAddressBookPrompt() async {
   final prompt = supportAddressBookModel.postSessionPrompts.first;
   _showingPostSessionPrompt = true;
   var completed = false;
-  SupportDevice? previous;
-  for (final device in supportAddressBookModel.devices) {
-    if (device.rustdeskId == prompt.rustdeskId) {
-      previous = device;
-      break;
-    }
-  }
-  final differences = <String>[];
-  void compare(String label, String oldValue, Object? detected) {
-    final newValue = detected?.toString() ?? '';
-    if (newValue.isNotEmpty && newValue != oldValue) {
-      differences
-          .add('$label: ${oldValue.isEmpty ? '(brak)' : oldValue} → $newValue');
-    }
-  }
-
-  if (previous != null) {
-    compare('Hostname', previous.hostname, prompt.telemetry['peer_hostname']);
-    compare('Użytkownik', previous.remoteUsername,
-        prompt.telemetry['peer_username']);
-    compare('System', previous.platform, prompt.telemetry['peer_platform']);
-    compare('Wersja RustDesk', previous.rustdeskVersion,
-        prompt.telemetry['peer_version']);
-    compare('Liczba monitorów', previous.displayCount?.toString() ?? '',
-        prompt.telemetry['display_count']);
-  }
   try {
-    if (prompt.supportSessionId != null) {
+    final existing = await supportAddressBookModel.lookup(prompt.rustdeskId);
+    if (_supportSessionSummaryPromptsEnabled &&
+        prompt.supportSessionId != null) {
       final result = await _showSupportSessionResultDialog(context, prompt);
       if (result != null) {
         await supportAddressBookModel.updateSupportSessionResult(
@@ -1332,21 +1481,20 @@ Future<void> showPendingSupportAddressBookPrompt() async {
         );
       }
     }
-    final existing = await supportAddressBookModel.lookup(prompt.rustdeskId);
+    if (existing != null) {
+      await supportAddressBookModel.completePostSessionPrompt(prompt.id);
+      completed = true;
+      return;
+    }
     final currentContext = globalKey.currentState?.context;
     if (currentContext == null || !currentContext.mounted) return;
     final shouldEdit = await showDialog<bool>(
           context: currentContext,
           builder: (dialogContext) => AlertDialog(
-            title: Text(existing == null
-                ? 'Dodać do książki adresowej?'
-                : 'Zaktualizować wpis w książce?'),
+            title: const Text('Dodać do książki adresowej?'),
             content: Text(
-              existing == null
-                  ? 'Zakończono sesję z urządzeniem ${prompt.rustdeskId}. Czy dodać je do wspólnej książki?'
-                  : 'Zakończono sesję z urządzeniem ${existing.customerName}: ${existing.name} (${prompt.rustdeskId}).'
-                      '${differences.isEmpty ? '' : '\n\nWykryte różnice:\n${differences.join('\n')}'}'
-                      '\n\nCzy otworzyć formularz i zatwierdzić aktualizację wpisu?',
+              'Zakończono sesję z nieznanym urządzeniem ${prompt.rustdeskId}. '
+              'Czy dodać je do wspólnej książki?',
             ),
             actions: [
               TextButton(
@@ -1355,7 +1503,7 @@ Future<void> showPendingSupportAddressBookPrompt() async {
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(dialogContext, true),
-                child: Text(existing == null ? 'Dodaj' : 'Edytuj'),
+                child: const Text('Dodaj'),
               ),
             ],
           ),
@@ -1365,8 +1513,7 @@ Future<void> showPendingSupportAddressBookPrompt() async {
     if (shouldEdit && editContext != null && editContext.mounted) {
       await showSupportDeviceDialog(
         editContext,
-        device: existing,
-        rustdeskId: existing == null ? prompt.rustdeskId : null,
+        rustdeskId: prompt.rustdeskId,
       );
     }
     await supportAddressBookModel.completePostSessionPrompt(prompt.id);

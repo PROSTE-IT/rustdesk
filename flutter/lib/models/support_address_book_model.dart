@@ -255,6 +255,14 @@ class SupportPostSessionPrompt {
 
 enum SupportSessionSyncStatus { waiting, syncing, synced, failed, signedOut }
 
+enum SupportBackendConnectionState {
+  disabled,
+  signedOut,
+  checking,
+  connected,
+  offline,
+}
+
 class SupportDeviceCardData {
   final SupportDevice device;
   final List<SupportSessionSummary> activeSessions;
@@ -305,6 +313,8 @@ class SupportAddressBookModel with ChangeNotifier {
   String _tokenType = 'Device';
   SupportTechnician? _technician;
   bool _loading = false;
+  bool _backendChecking = false;
+  bool _backendReachable = false;
   bool _onlineHandlerRegistered = false;
   String? _error;
   Timer? _retryTimer;
@@ -315,6 +325,18 @@ class SupportAddressBookModel with ChangeNotifier {
   bool get initialized => _initialized;
   bool get isAuthenticated => enabled && _token.isNotEmpty;
   bool get loading => _loading;
+  int get pendingEventCount => _eventQueue.length;
+  SupportBackendConnectionState get backendConnectionState {
+    if (!enabled) return SupportBackendConnectionState.disabled;
+    if (!isAuthenticated) return SupportBackendConnectionState.signedOut;
+    if (_backendChecking && !_backendReachable) {
+      return SupportBackendConnectionState.checking;
+    }
+    return _backendReachable
+        ? SupportBackendConnectionState.connected
+        : SupportBackendConnectionState.offline;
+  }
+
   String? get error => _error;
   SupportTechnician? get technician => _technician;
   List<SupportCustomer> get customers => _customers;
@@ -403,6 +425,7 @@ class SupportAddressBookModel with ChangeNotifier {
       final savedToken = await readSupportDeviceToken();
       if (savedToken != null && savedToken.isNotEmpty) {
         _token = savedToken;
+        _backendChecking = true;
         try {
           final response = await http
               .get(
@@ -416,10 +439,17 @@ class SupportAddressBookModel with ChangeNotifier {
               Map<String, dynamic>.from(body['technician'] as Map),
             );
           }
+          _backendReachable = true;
+          _error = null;
           _startRetryTimer();
           unawaited(flushEventQueue());
         } catch (error) {
-          if (_token.isNotEmpty) _error = error.toString();
+          if (_token.isNotEmpty) {
+            _backendReachable = false;
+            _error = error.toString();
+          }
+        } finally {
+          _backendChecking = false;
         }
       }
     } finally {
@@ -432,6 +462,7 @@ class SupportAddressBookModel with ChangeNotifier {
     if (!enabled) return;
     await ensureInitialized();
     _setLoading(true);
+    _setBackendChecking(true);
     try {
       final info = await PackageInfo.fromPlatform();
       final response = await http.post(
@@ -461,14 +492,17 @@ class SupportAddressBookModel with ChangeNotifier {
         );
       }
       await writeSupportDeviceToken(_token);
+      _backendReachable = true;
       _error = null;
       _startRetryTimer();
       await flushEventQueue();
       await refresh();
     } catch (error) {
+      _backendReachable = false;
       _error = error.toString();
       rethrow;
     } finally {
+      _setBackendChecking(false);
       _setLoading(false);
     }
   }
@@ -492,6 +526,8 @@ class SupportAddressBookModel with ChangeNotifier {
     _token = '';
     _tokenType = 'Device';
     _technician = null;
+    _backendChecking = false;
+    _backendReachable = false;
     _customers = const [];
     _devices = const [];
     _retryTimer?.cancel();
@@ -519,6 +555,7 @@ class SupportAddressBookModel with ChangeNotifier {
     await ensureInitialized();
     if (!isAuthenticated) return;
     _setLoading(true);
+    _setBackendChecking(true);
     try {
       final response = await http.get(
         _uri('api/v1/changes/'),
@@ -552,14 +589,17 @@ class SupportAddressBookModel with ChangeNotifier {
       }
       _devices.sort((left, right) =>
           left.name.toLowerCase().compareTo(right.name.toLowerCase()));
+      _backendReachable = true;
       _error = null;
       notifyListeners();
       await queryOnlineStates();
     } catch (error) {
+      _backendReachable = false;
       _error = error.toString();
       notifyListeners();
       rethrow;
     } finally {
+      _setBackendChecking(false);
       _setLoading(false);
     }
   }
@@ -939,10 +979,14 @@ class SupportAddressBookModel with ChangeNotifier {
             continue;
           }
         } catch (error) {
+          _backendReachable = false;
+          _error = error.toString();
           debugPrint('Support event queue is offline: $error');
           break;
         }
+        _backendReachable = true;
         if (response.statusCode >= 200 && response.statusCode < 300) {
+          _error = null;
           await _removeProcessedEvent(event);
           continue;
         }
@@ -1019,6 +1063,12 @@ class SupportAddressBookModel with ChangeNotifier {
   void _setLoading(bool value) {
     if (_loading == value) return;
     _loading = value;
+    notifyListeners();
+  }
+
+  void _setBackendChecking(bool value) {
+    if (_backendChecking == value) return;
+    _backendChecking = value;
     notifyListeners();
   }
 }
