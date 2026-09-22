@@ -472,7 +472,8 @@ class RustDeskMultiWindowManager {
     }
     for (int i = 0; i < windows.length; i++) {
       final wId = windows[i];
-      final shouldSavePos = type != WindowType.Terminal || i == windows.length - 1;
+      final shouldSavePos =
+          type != WindowType.Terminal || i == windows.length - 1;
       if (shouldSavePos) {
         debugPrint("closing multi window, type: ${type.toString()} id: $wId");
         try {
@@ -577,8 +578,7 @@ class RustDeskMultiWindowManager {
           return true;
         }
       } catch (e) {
-        debugPrint(
-            'Failed to query remote sessions in window $windowId: $e');
+        debugPrint('Failed to query remote sessions in window $windowId: $e');
       }
     }
     return false;
