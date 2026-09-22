@@ -21,6 +21,8 @@ const managedWindowsUpdateChannels = {
 const supportClientBuildUuid = String.fromEnvironment('RDBK_BUILD_UUID');
 const supportClientBuildRunId = int.fromEnvironment('RDBK_BUILD_RUN_ID');
 const supportClientVersion = String.fromEnvironment('RDBK_APP_VERSION');
+const _supportTechnicianDisplayNameOption =
+    'proste-it-technician-display-name';
 
 class SupportCustomer {
   final String id;
@@ -527,6 +529,7 @@ class SupportAddressBookModel with ChangeNotifier {
               Map<String, dynamic>.from(body['technician'] as Map),
             );
           }
+          await _syncTechnicianDisplayName();
           _backendReachable = true;
           _error = null;
           _startRetryTimer();
@@ -539,6 +542,8 @@ class SupportAddressBookModel with ChangeNotifier {
         } finally {
           _backendChecking = false;
         }
+      } else {
+        await _syncTechnicianDisplayName();
       }
     } finally {
       _initialized = true;
@@ -583,6 +588,7 @@ class SupportAddressBookModel with ChangeNotifier {
           Map<String, dynamic>.from(body['technician'] as Map),
         );
       }
+      await _syncTechnicianDisplayName();
       await writeSupportDeviceToken(_token);
       _backendReachable = true;
       _error = null;
@@ -629,6 +635,7 @@ class SupportAddressBookModel with ChangeNotifier {
     _lastClientUpdateCheck = null;
     _retryTimer?.cancel();
     _retryTimer = null;
+    await _syncTechnicianDisplayName();
     await deleteSupportDeviceToken();
     if (clearQueue) {
       _eventQueue.clear();
@@ -639,6 +646,19 @@ class SupportAddressBookModel with ChangeNotifier {
       await _persistSessionSyncFailures();
     }
     notifyListeners();
+  }
+
+  Future<void> _syncTechnicianDisplayName() async {
+    final technician = _technician;
+    final displayName = technician == null
+        ? ''
+        : (technician.displayName.trim().isNotEmpty
+            ? technician.displayName.trim()
+            : technician.username.trim());
+    await bind.mainSetLocalOption(
+      key: _supportTechnicianDisplayNameOption,
+      value: displayName,
+    );
   }
 
   void _startRetryTimer() {
