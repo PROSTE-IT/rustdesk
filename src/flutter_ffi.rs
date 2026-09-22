@@ -2960,8 +2960,10 @@ pub fn main_set_common(_key: String, _value: String) {
             );
         } else if _key == "support-update" {
             #[cfg(target_os = "windows")]
+            let update_request = _value.clone();
+            #[cfg(target_os = "windows")]
             std::thread::spawn(move || {
-                let result = crate::ipc::request_support_update(_value);
+                let result = crate::ipc::request_support_update(update_request);
                 let (success, message) = match result {
                     Ok(()) => (true, String::new()),
                     Err(error) => (false, error.to_string()),
