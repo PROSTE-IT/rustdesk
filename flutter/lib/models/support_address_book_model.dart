@@ -517,12 +517,25 @@ class SupportAddressBookModel with ChangeNotifier {
         _token = savedToken;
         _backendChecking = true;
         try {
-          final response = await http
-              .get(
+          var response = await http
+              .post(
                 _uri('api/auth/device/me/'),
                 headers: _headers(),
+                body: jsonEncode({
+                  'machine_name': supportMachineName(),
+                  'os_username': supportOsUsername(),
+                  'client_version': await _reportedClientVersion(),
+                }),
               )
               .timeout(const Duration(seconds: 3));
+          if (response.statusCode == 405) {
+            response = await http
+                .get(
+                  _uri('api/auth/device/me/'),
+                  headers: _headers(),
+                )
+                .timeout(const Duration(seconds: 3));
+          }
           final body = _requireSuccess(response);
           if (body is Map && body['technician'] is Map) {
             _technician = SupportTechnician.fromJson(
@@ -561,7 +574,7 @@ class SupportAddressBookModel with ChangeNotifier {
     _setLoading(true);
     _setBackendChecking(true);
     try {
-      final info = await PackageInfo.fromPlatform();
+      final reportedVersion = await _reportedClientVersion();
       final response = await http.post(
         _uri('api/auth/device/login/'),
         headers: _headers(authenticated: false),
@@ -571,7 +584,7 @@ class SupportAddressBookModel with ChangeNotifier {
           'installation_id': _installationId,
           'machine_name': supportMachineName(),
           'os_username': supportOsUsername(),
-          'client_version': info.version,
+          'client_version': reportedVersion,
         }),
       );
       final body = _requireSuccess(response);
@@ -659,6 +672,12 @@ class SupportAddressBookModel with ChangeNotifier {
       key: _supportTechnicianDisplayNameOption,
       value: displayName,
     );
+  }
+
+  Future<String> _reportedClientVersion() async {
+    final managedVersion = supportClientVersion.trim();
+    if (managedVersion.isNotEmpty) return managedVersion;
+    return (await PackageInfo.fromPlatform()).version;
   }
 
   void _startRetryTimer() {

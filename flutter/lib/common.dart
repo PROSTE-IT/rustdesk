@@ -177,7 +177,7 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
     shadow: Colors.black,
     errorBannerBg: Color(0xFFFDEEEB),
     me: Colors.green,
-    toastBg: Colors.black.withOpacity(0.6),
+    toastBg: const Color(0xFF202124),
     toastText: Colors.white,
     divider: Colors.black38,
   );
@@ -191,7 +191,7 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
     shadow: Colors.grey,
     errorBannerBg: Color(0xFF470F2D),
     me: Colors.greenAccent,
-    toastBg: Colors.white.withOpacity(0.6),
+    toastBg: const Color(0xFFF3F4F6),
     toastText: Colors.black,
     divider: Colors.white38,
   );
@@ -1023,7 +1023,7 @@ makeMobileActionsOverlayEntry(VoidCallback? onHide, {FFI? ffi}) {
 }
 
 void showToast(String text,
-    {Duration timeout = const Duration(seconds: 3),
+    {Duration timeout = const Duration(seconds: 5),
     Alignment alignment = const Alignment(0.0, 0.8)}) {
   final overlayState = globalKey.currentState?.overlay;
   if (overlayState == null) return;

@@ -1039,6 +1039,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       }
       showToast(
         'Brak dostępnej wersji Windows Helpdesk. Ustaw bieżący build w RDBK i spróbuj ponownie.',
+        timeout: const Duration(seconds: 8),
       );
       return;
     }
@@ -1051,7 +1052,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       if (mounted) {
         setState(() => _quickSupportInstallStarting = false);
       }
-      showToast('Nie udało się uruchomić instalacji: $error');
+      showToast(
+        'Nie udało się uruchomić instalacji: $error',
+        timeout: const Duration(seconds: 8),
+      );
     }
   }
 
@@ -1068,6 +1072,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         message.isNotEmpty
             ? message
             : 'Nie udało się uruchomić instalatora Windows Helpdesk.',
+        timeout: const Duration(seconds: 8),
       );
       return;
     }
