@@ -397,6 +397,7 @@ class SupportAddressBookModel with ChangeNotifier {
     }
     return update;
   }
+
   List<SupportPostSessionPrompt> get postSessionPrompts =>
       List.unmodifiable(_postSessionPrompts);
 

@@ -7,12 +7,18 @@ on:
       - feature/shared-address-book-client
     paths:
       - build.py
+      - res/msi/preprocess.py
+      - libs/portable/build.rs
+      - src/flutter_ffi.rs
+      - src/ipc.rs
+      - src/updater.rs
       - flutter/lib/common.dart
       - flutter/lib/common/widgets/support_address_book.dart
       - flutter/lib/common/widgets/peer_card.dart
       - flutter/lib/common/widgets/peer_tab_page.dart
       - flutter/lib/common/widgets/peers_view.dart
       - flutter/lib/desktop/pages/remote_page.dart
+      - flutter/lib/desktop/pages/desktop_home_page.dart
       - flutter/lib/models/model.dart
       - flutter/lib/models/peer_tab_model.dart
       - flutter/lib/models/support_address_book_model.dart
@@ -46,6 +52,7 @@ jobs:
         run: |
           files=(
             lib/common/widgets/support_address_book.dart
+            lib/desktop/pages/desktop_home_page.dart
             lib/models/support_address_book_model.dart
             lib/models/support_secure_storage.dart
             lib/models/support_secure_storage_io.dart
@@ -67,7 +74,9 @@ jobs:
 
       - name: Analyze address book UI
         working-directory: flutter
-        run: dart analyze lib/common/widgets/support_address_book.dart
+        run: |
+          dart analyze lib/common/widgets/support_address_book.dart
+          dart analyze lib/desktop/pages/desktop_home_page.dart
 
       - name: Analyze integration hooks
         working-directory: flutter
@@ -83,4 +92,4 @@ jobs:
           done
 
       - name: Validate Python build script
-        run: python -m py_compile build.py
+        run: python -m py_compile build.py res/msi/preprocess.py
