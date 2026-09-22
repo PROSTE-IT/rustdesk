@@ -562,6 +562,28 @@ class RustDeskMultiWindowManager {
     return coords;
   }
 
+  // This function is called from the main window, which owns the list of
+  // remote desktop windows. The closing window is excluded because its final
+  // tab has already been removed but the native window may still be active.
+  Future<bool> hasOtherRemoteDesktopSessions(int closingWindowId) async {
+    for (final windowId in _remoteDesktopWindows) {
+      if (windowId == closingWindowId || !_activeWindows.contains(windowId)) {
+        continue;
+      }
+      try {
+        final sessions = await DesktopMultiWindow.invokeMethod(
+            windowId, kWindowEventGetRemoteList, '');
+        if (sessions is String && sessions.isNotEmpty) {
+          return true;
+        }
+      } catch (e) {
+        debugPrint(
+            'Failed to query remote sessions in window $windowId: $e');
+      }
+    }
+    return false;
+  }
+
   // This function is called from one remote window.
   // Only the main window knows `_remoteDesktopWindows` and `_activeWindows`.
   // So we need to call the main window to get the other remote windows' coords.

@@ -360,6 +360,15 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
 
   void onRemoveId(String id) async {
     if (tabController.state.value.tabs.isEmpty) {
+      // Moving a tab to another window also removes it from this controller,
+      // but must not return the user to the main window.
+      if (closeSessionOnDispose[id] ?? true) {
+        await rustDeskWinManager.call(
+          WindowType.Main,
+          kWindowReturnToMainAfterLastRemoteSession,
+          {'id': windowId()},
+        );
+      }
       // Keep calling until the window status is hidden.
       //
       // Workaround for Windows:

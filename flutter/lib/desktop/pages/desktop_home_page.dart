@@ -818,6 +818,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       }
       if (call.method == kWindowMainWindowOnTop) {
         windowOnTop(null);
+      } else if (call.method == kWindowReturnToMainAfterLastRemoteSession) {
+        final closingWindowId = call.arguments['id'];
+        if (closingWindowId is int &&
+            !await rustDeskWinManager
+                .hasOtherRemoteDesktopSessions(closingWindowId)) {
+          await windowOnTop(null);
+        }
       } else if (call.method == kWindowRefreshCurrentUser) {
         gFFI.userModel.refreshCurrentUser();
       } else if (call.method == kWindowGetWindowInfo) {
