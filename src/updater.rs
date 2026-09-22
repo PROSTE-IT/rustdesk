@@ -58,6 +58,74 @@ pub fn install_support_update(download_url: String) -> ResultType<()> {
         bail!("Zakończ aktywne sesje przed aktualizacją.");
     }
 
+    let (installer, update_channel) = download_managed_msi(download_url)?;
+    if !has_no_active_conns() {
+        std::fs::remove_file(&installer).ok();
+        bail!("Zakończ aktywne sesje przed aktualizacją.");
+    }
+
+    let mut child = match spawn_managed_msi(&installer, true) {
+        Ok(child) => child,
+        Err(error) => {
+            std::fs::remove_file(&installer).ok();
+            return Err(error);
+        }
+    };
+    let pid = child.id();
+    log::info!(
+        "Managed update installer started, pid: {}, channel: {}, file: {:?}",
+        pid,
+        update_channel,
+        installer
+    );
+    std::thread::spawn(move || {
+        let _ = child.wait();
+        std::fs::remove_file(installer).ok();
+    });
+    Ok(())
+}
+
+#[cfg(all(target_os = "windows", feature = "flutter"))]
+pub fn install_quick_support_as_helpdesk(download_url: String) -> ResultType<()> {
+    if option_env!("CLIENT_VARIANT").unwrap_or("").trim() != "quick_support" {
+        bail!("Ten build nie jest aplikacją Quick Support.");
+    }
+    if crate::platform::is_installed() {
+        bail!("Aplikacja jest już zainstalowana.");
+    }
+
+    let (installer, update_channel) = download_managed_msi(download_url)?;
+    if update_channel != "windows_helpdesk" {
+        std::fs::remove_file(&installer).ok();
+        bail!("Quick Support może zainstalować wyłącznie profil Windows Helpdesk.");
+    }
+    let mut child = match spawn_managed_msi(&installer, false) {
+        Ok(child) => child,
+        Err(error) => {
+            std::fs::remove_file(&installer).ok();
+            return Err(error);
+        }
+    };
+    let pid = child.id();
+    log::info!(
+        "Quick Support started Windows Helpdesk installer, pid: {}, file: {:?}",
+        pid,
+        installer
+    );
+    let status = child.wait();
+    std::fs::remove_file(installer).ok();
+    let status = status?;
+    if !status.success() && status.code() != Some(3010) {
+        bail!(
+            "Instalacja Windows Helpdesk zakończyła się kodem {}.",
+            status.code().unwrap_or(-1)
+        );
+    }
+    Ok(())
+}
+
+#[cfg(all(target_os = "windows", feature = "flutter"))]
+fn download_managed_msi(download_url: String) -> ResultType<(PathBuf, String)> {
     let configured_base = option_env!("RDBK_API_URL").unwrap_or("").trim();
     if configured_base.is_empty() {
         bail!("W tym buildzie nie skonfigurowano serwera aktualizacji.");
@@ -126,47 +194,31 @@ pub fn install_support_update(download_url: String) -> ResultType<()> {
         std::fs::remove_file(&installer).ok();
         bail!("Pobrany plik nie jest instalatorem MSI.");
     }
-    if !has_no_active_conns() {
-        std::fs::remove_file(&installer).ok();
-        bail!("Zakończ aktywne sesje przed aktualizacją.");
-    }
+    Ok((installer, update_channel.to_owned()))
+}
 
+#[cfg(all(target_os = "windows", feature = "flutter"))]
+fn spawn_managed_msi(
+    installer: &std::path::Path,
+    silent: bool,
+) -> ResultType<std::process::Child> {
     let system_root = std::env::var_os("SystemRoot")
         .ok_or_else(|| hbb_common::anyhow::anyhow!("Brak katalogu systemowego Windows."))?;
     let msiexec = PathBuf::from(system_root)
         .join("System32")
         .join("msiexec.exe");
-    let mut child = match std::process::Command::new(msiexec)
-        .args([
-            "/i",
-            installer
-                .to_str()
-                .ok_or_else(|| hbb_common::anyhow::anyhow!("Nieprawidłowa ścieżka instalatora."))?,
-            "/qn",
-            "LAUNCH_TRAY_APP=N",
-            "REBOOT=ReallySuppress",
-            "/norestart",
-        ])
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(error) => {
-            std::fs::remove_file(&installer).ok();
-            return Err(error.into());
-        }
-    };
-    let pid = child.id();
-    log::info!(
-        "Managed update installer started, pid: {}, channel: {}, file: {:?}",
-        pid,
-        update_channel,
-        installer
-    );
-    std::thread::spawn(move || {
-        let _ = child.wait();
-        std::fs::remove_file(installer).ok();
-    });
-    Ok(())
+    let installer = installer
+        .to_str()
+        .ok_or_else(|| hbb_common::anyhow::anyhow!("Nieprawidłowa ścieżka instalatora."))?;
+    let mut command = std::process::Command::new(msiexec);
+    command.args(["/i", installer]);
+    if silent {
+        command.args(["/qn", "LAUNCH_TRAY_APP=N"]);
+    } else {
+        command.args(["/passive", "LAUNCH_TRAY_APP=Y"]);
+    }
+    command.args(["REBOOT=ReallySuppress", "/norestart"]);
+    Ok(command.spawn()?)
 }
 
 #[inline]

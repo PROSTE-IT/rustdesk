@@ -2958,6 +2958,27 @@ pub fn main_set_common(_key: String, _value: String) {
                 flutter::APP_TYPE_MAIN,
                 serde_json::ser::to_string(&data).unwrap_or("".to_owned()),
             );
+        } else if _key == "quick-support-install" {
+            #[cfg(target_os = "windows")]
+            let install_request = _value.clone();
+            #[cfg(target_os = "windows")]
+            std::thread::spawn(move || {
+                let result =
+                    crate::updater::install_quick_support_as_helpdesk(install_request);
+                let (success, message) = match result {
+                    Ok(()) => (true, String::new()),
+                    Err(error) => (false, error.to_string()),
+                };
+                let data = HashMap::from([
+                    ("name", serde_json::json!("quick-support-install")),
+                    ("success", serde_json::json!(success)),
+                    ("message", serde_json::json!(message)),
+                ]);
+                let _ = flutter::push_global_event(
+                    flutter::APP_TYPE_MAIN,
+                    serde_json::ser::to_string(&data).unwrap_or_default(),
+                );
+            });
         } else if _key == "support-update" {
             #[cfg(target_os = "windows")]
             let update_request = _value.clone();

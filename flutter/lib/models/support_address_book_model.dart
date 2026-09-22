@@ -10,6 +10,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:uuid/uuid.dart';
 
 const supportAddressBookApiUrl = String.fromEnvironment('RDBK_API_URL');
+const clientVariant = String.fromEnvironment('CLIENT_VARIANT');
+const isQuickSupportBuild = clientVariant == 'quick_support';
 const supportClientUpdateChannel =
     String.fromEnvironment('RDBK_UPDATE_CHANNEL');
 const managedWindowsUpdateChannels = {
@@ -408,7 +410,8 @@ class SupportAddressBookModel with ChangeNotifier {
     if (update == null ||
         supportClientBuildUuid.isEmpty ||
         supportClientBuildRunId <= 0 ||
-        update.githubRunId <= supportClientBuildRunId) {
+        (!isQuickSupportBuild &&
+            update.githubRunId <= supportClientBuildRunId)) {
       return null;
     }
     return update;
@@ -528,7 +531,8 @@ class SupportAddressBookModel with ChangeNotifier {
     } finally {
       _initialized = true;
       notifyListeners();
-      if (isAuthenticated) {
+      if (managedWindowsUpdateChannels.contains(supportClientUpdateChannel)) {
+        _startRetryTimer();
         unawaited(checkClientUpdate(force: true));
       }
     }
@@ -636,7 +640,9 @@ class SupportAddressBookModel with ChangeNotifier {
 
   Future<void> checkClientUpdate({bool force = false}) async {
     await ensureInitialized();
-    if (!isAuthenticated ||
+    final requiresTechnicianToken =
+        supportClientUpdateChannel == 'windows_support';
+    if ((requiresTechnicianToken && !isAuthenticated) ||
         _clientUpdateChecking ||
         !managedWindowsUpdateChannels.contains(supportClientUpdateChannel)) {
       return;
@@ -657,7 +663,7 @@ class SupportAddressBookModel with ChangeNotifier {
               'api/v1/client-update/',
               {'channel': supportClientUpdateChannel},
             ),
-            headers: _headers(),
+            headers: _headers(authenticated: requiresTechnicianToken),
           )
           .timeout(const Duration(seconds: 10));
       final body = _requireSuccess(response);

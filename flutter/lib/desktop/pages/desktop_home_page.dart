@@ -54,11 +54,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   bool isCardClosed = false;
   bool _supportUpdateStarting = false;
   bool _supportUpdateAutomatic = false;
+  bool _quickSupportInstallStarting = false;
   String? _lastAutomaticUpdateBuild;
   DateTime? _lastAutomaticUpdateAttempt;
 
   static const _supportUpdateEvent = 'support-update';
   static const _supportUpdateHandler = 'desktop-home-support-update';
+  static const _quickSupportInstallEvent = 'quick-support-install';
+  static const _quickSupportInstallHandler =
+      'desktop-home-quick-support-install';
 
   final RxBool _editHover = false.obs;
   final RxBool _block = false.obs;
@@ -474,6 +478,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
     if (isWindows && !bind.isDisableInstallation()) {
       if (!bind.mainIsInstalled()) {
+        if (isQuickSupportBuild) {
+          return buildQuickSupportInstallAction();
+        }
         return buildInstallCard(
             "", bind.isOutgoingOnly() ? "" : "install_tip", "Install",
             () async {
@@ -597,6 +604,33 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       ).marginAll(14);
     }
     return Container();
+  }
+
+  Widget buildQuickSupportInstallAction() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(14, 20, 14, 14),
+      child: OutlinedButton.icon(
+        icon: _quickSupportInstallStarting
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.install_desktop_outlined, size: 19),
+        label: Text(
+          _quickSupportInstallStarting
+              ? 'Przygotowywanie instalatora...'
+              : 'Zainstaluj na komputerze',
+          textAlign: TextAlign.center,
+        ),
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        ),
+        onPressed:
+            _quickSupportInstallStarting ? null : _installQuickSupportHelpdesk,
+      ),
+    );
   }
 
   Widget buildInstallCard(String title, String content, String btnText,
@@ -723,10 +757,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   void initState() {
     super.initState();
+    if (managedWindowsUpdateChannels.contains(supportClientUpdateChannel)) {
+      unawaited(supportAddressBookModel.ensureInitialized());
+    }
     platformFFI.registerEventHandler(
       _supportUpdateEvent,
       _supportUpdateHandler,
       _handleSupportUpdateEvent,
+      replace: true,
+    );
+    platformFFI.registerEventHandler(
+      _quickSupportInstallEvent,
+      _quickSupportInstallHandler,
+      _handleQuickSupportInstallEvent,
       replace: true,
     );
     supportAddressBookModel.addListener(_handleSupportAddressBookChange);
@@ -927,6 +970,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       _supportUpdateEvent,
       _supportUpdateHandler,
     );
+    platformFFI.unregisterEventHandler(
+      _quickSupportInstallEvent,
+      _quickSupportInstallHandler,
+    );
     _uniLinksSubscription?.cancel();
     Get.delete<RxBool>(tag: 'stop-service');
     _updateTimer?.cancel();
@@ -978,6 +1025,57 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       if (!automatic) {
         showToast('Nie udało się zlecić aktualizacji: $error');
       }
+    }
+  }
+
+  Future<void> _installQuickSupportHelpdesk() async {
+    if (_quickSupportInstallStarting || !mounted) return;
+    setState(() => _quickSupportInstallStarting = true);
+    await supportAddressBookModel.checkClientUpdate(force: true);
+    final update = supportAddressBookModel.availableClientUpdate;
+    if (update == null) {
+      if (mounted) {
+        setState(() => _quickSupportInstallStarting = false);
+      }
+      showToast(
+        'Brak dostępnej wersji Windows Helpdesk. Ustaw bieżący build w RDBK i spróbuj ponownie.',
+      );
+      return;
+    }
+    try {
+      await bind.mainSetCommon(
+        key: _quickSupportInstallEvent,
+        value: update.downloadUrl,
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(() => _quickSupportInstallStarting = false);
+      }
+      showToast('Nie udało się uruchomić instalacji: $error');
+    }
+  }
+
+  Future<void> _handleQuickSupportInstallEvent(
+    Map<String, dynamic> event,
+  ) async {
+    final success = event['success'] == true;
+    final message = event['message']?.toString() ?? '';
+    if (!success) {
+      if (mounted) {
+        setState(() => _quickSupportInstallStarting = false);
+      }
+      showToast(
+        message.isNotEmpty
+            ? message
+            : 'Nie udało się uruchomić instalatora Windows Helpdesk.',
+      );
+      return;
+    }
+    showToast('Uruchomiono instalator Windows Helpdesk.');
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    SystemNavigator.pop();
+    if (isWindows) {
+      exit(0);
     }
   }
 

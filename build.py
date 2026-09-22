@@ -450,6 +450,7 @@ def build_flutter_windows(version, features, skip_portable_pack):
         'RDBK_BUILD_UUID': os.environ.get('RDBK_BUILD_UUID', '').strip(),
         'RDBK_BUILD_RUN_ID': os.environ.get('GITHUB_RUN_ID', '').strip(),
         'RDBK_APP_VERSION': os.environ.get('PIT_VERSION', '').strip(),
+        'CLIENT_VARIANT': os.environ.get('CLIENT_VARIANT', '').strip(),
     }
     define_args = ''.join(
         f' --dart-define="{key}={value}"'
