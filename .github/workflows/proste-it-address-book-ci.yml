@@ -104,7 +104,6 @@ jobs:
             lib/desktop/pages/remote_page.dart \
             lib/desktop/pages/remote_tab_page.dart \
             lib/desktop/widgets/remote_toolbar.dart \
-            lib/models/model.dart \
             lib/models/peer_tab_model.dart \
             lib/consts.dart \
             lib/utils/multi_window_manager.dart; do
