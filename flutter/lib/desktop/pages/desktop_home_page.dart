@@ -1122,12 +1122,14 @@ class _SupportActiveSessionsPanelState
           if (!supportAddressBookModel.isAuthenticated)
             Text(
               'Zaloguj się do RDBK, aby zobaczyć aktywne połączenia.',
-              style: TextStyle(fontSize: 11, color: textColor?.withOpacity(0.6)),
+              style:
+                  TextStyle(fontSize: 11, color: textColor?.withOpacity(0.6)),
             )
           else if (sessions.isEmpty)
             Text(
               'Brak aktywnych sesji.',
-              style: TextStyle(fontSize: 11, color: textColor?.withOpacity(0.6)),
+              style:
+                  TextStyle(fontSize: 11, color: textColor?.withOpacity(0.6)),
             )
           else
             ...sessions.map(_buildSession),

@@ -752,12 +752,13 @@ class SupportAddressBookModel with ChangeNotifier {
       final items = body is Map ? body['results'] : body;
       final sessions = (items as List? ?? const [])
           .whereType<Map>()
-          .map((item) => SupportSessionSummary.fromJson(
-              Map<String, dynamic>.from(item)))
+          .map((item) =>
+              SupportSessionSummary.fromJson(Map<String, dynamic>.from(item)))
           .where((session) => session.active)
           .toList()
         ..sort((left, right) {
-          final leftStarted = left.startedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final leftStarted =
+              left.startedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
           final rightStarted =
               right.startedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
           return leftStarted.compareTo(rightStarted);
