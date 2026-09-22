@@ -462,6 +462,10 @@ pub enum Data {
     #[cfg(all(target_os = "windows", feature = "flutter"))]
     PrinterData(Vec<u8>),
     InstallOption(Option<(String, String)>),
+    #[cfg(all(target_os = "windows", feature = "flutter"))]
+    SupportUpdate(String),
+    #[cfg(all(target_os = "windows", feature = "flutter"))]
+    SupportUpdateResult(Option<String>),
     #[cfg(all(
         feature = "flutter",
         not(any(target_os = "android", target_os = "ios"))
@@ -1076,6 +1080,21 @@ async fn handle(data: Data, stream: &mut Connection) {
         Data::ClearTrustedDevices => {
             Config::clear_trusted_devices();
         }
+        #[cfg(all(target_os = "windows", feature = "flutter"))]
+        Data::SupportUpdate(download_url) => {
+            let result = tokio::task::spawn_blocking(move || {
+                crate::updater::install_support_update(download_url)
+            })
+            .await;
+            let error = match result {
+                Ok(Ok(())) => None,
+                Ok(Err(error)) => Some(error.to_string()),
+                Err(error) => Some(error.to_string()),
+            };
+            allow_err!(stream.send(&Data::SupportUpdateResult(error)).await);
+        }
+        #[cfg(all(target_os = "windows", feature = "flutter"))]
+        Data::SupportUpdateResult(_) => {}
         Data::InstallOption(opt) => match opt {
             Some((_k, _v)) => {
                 #[cfg(target_os = "windows")]
@@ -2110,6 +2129,18 @@ pub async fn set_install_option(k: String, v: String) -> ResultType<()> {
         c.next_timeout(1000).await.ok();
     }
     Ok(())
+}
+
+#[cfg(all(target_os = "windows", feature = "flutter"))]
+#[tokio::main(flavor = "current_thread")]
+pub async fn request_support_update(download_url: String) -> ResultType<()> {
+    let mut connection = connect(3_000, "").await?;
+    connection.send(&Data::SupportUpdate(download_url)).await?;
+    match connection.next_timeout(330_000).await? {
+        Some(Data::SupportUpdateResult(None)) => Ok(()),
+        Some(Data::SupportUpdateResult(Some(error))) => bail!(error),
+        _ => bail!("Usługa nie potwierdziła uruchomienia aktualizacji."),
+    }
 }
 
 #[cfg(test)]

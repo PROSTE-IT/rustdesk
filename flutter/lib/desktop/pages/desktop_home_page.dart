@@ -15,8 +15,10 @@ import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
 import 'package:flutter_hbb/desktop/widgets/update_progress.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
+import 'package:flutter_hbb/models/native_model.dart';
 import 'package:flutter_hbb/models/server_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
+import 'package:flutter_hbb/models/support_address_book_model.dart';
 import 'package:flutter_hbb/plugin/ui_manager.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
 import 'package:flutter_hbb/utils/platform_channel.dart';
@@ -51,6 +53,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   var watchIsCanRecordAudio = false;
   Timer? _updateTimer;
   bool isCardClosed = false;
+  bool _supportUpdateStarting = false;
+  bool _supportUpdateAutomatic = false;
+  String? _lastAutomaticUpdateBuild;
+  DateTime? _lastAutomaticUpdateAttempt;
+
+  static const _supportUpdateEvent = 'support-update';
+  static const _supportUpdateHandler = 'desktop-home-support-update';
 
   final RxBool _editHover = false.obs;
   final RxBool _block = false.obs;
@@ -94,23 +103,23 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       buildTip(context),
       if (!isOutgoingOnly) buildIDBoard(context),
       if (!isOutgoingOnly) buildPasswordBoard(context),
-      FutureBuilder<Widget>(
-        future: Future.value(
-            Obx(() => buildHelpCards(stateGlobal.updateUrl.value))),
-        builder: (_, data) {
-          if (data.hasData) {
-            if (isIncomingOnly) {
-              if (isInHomePage()) {
-                Future.delayed(Duration(milliseconds: 300), () {
+      AnimatedBuilder(
+        animation: supportAddressBookModel,
+        builder: (_, __) => FutureBuilder<Widget>(
+          future: Future.value(
+              Obx(() => buildHelpCards(stateGlobal.updateUrl.value))),
+          builder: (_, data) {
+            if (data.hasData) {
+              if (isIncomingOnly && isInHomePage()) {
+                Future.delayed(const Duration(milliseconds: 300), () {
                   _updateWindowSize();
                 });
               }
+              return data.data!;
             }
-            return data.data!;
-          } else {
             return const Offstage();
-          }
-        },
+          },
+        ),
       ),
       buildPluginEntry(),
     ];
@@ -469,6 +478,20 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           await rustDeskWinManager.closeAllSubWindows();
           bind.mainGotoInstall();
         });
+      } else if (supportAddressBookModel.enabled) {
+        final update = supportAddressBookModel.availableClientUpdate;
+        if (update != null) {
+          final version = update.version.isNotEmpty ? ' ${update.version}' : '';
+          final current = supportClientVersion.isNotEmpty
+              ? ' Obecna: $supportClientVersion.'
+              : '';
+          return buildInstallCard(
+            "Status",
+            "Dostępna jest aktualizacja$version.$current",
+            _supportUpdateStarting ? "Uruchamianie..." : "Zaktualizuj",
+            () => _startSupportUpdate(update),
+          );
+        }
       } else if (bind.mainIsInstalledLowerVersion()) {
         return buildInstallCard(
             "Status", "Your installation is lower version.", "Click to upgrade",
@@ -698,7 +721,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   void initState() {
     super.initState();
+    platformFFI.registerEventHandler(
+      _supportUpdateEvent,
+      _supportUpdateHandler,
+      _handleSupportUpdateEvent,
+      replace: true,
+    );
+    supportAddressBookModel.addListener(_handleSupportAddressBookChange);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handleSupportAddressBookChange();
       unawaited(showPendingSupportAddressBookPrompt());
     });
     _updateTimer = periodic_immediate(const Duration(seconds: 1), () async {
@@ -882,11 +913,85 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   @override
   void dispose() {
+    supportAddressBookModel.removeListener(_handleSupportAddressBookChange);
+    platformFFI.unregisterEventHandler(
+      _supportUpdateEvent,
+      _supportUpdateHandler,
+    );
     _uniLinksSubscription?.cancel();
     Get.delete<RxBool>(tag: 'stop-service');
     _updateTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  void _handleSupportAddressBookChange() {
+    final update = supportAddressBookModel.availableClientUpdate;
+    if (update == null ||
+        !update.autoUpdate ||
+        !bind.mainIsInstalled() ||
+        _supportUpdateStarting) {
+      return;
+    }
+    final now = DateTime.now();
+    if (_lastAutomaticUpdateBuild == update.buildUuid &&
+        _lastAutomaticUpdateAttempt != null &&
+        now.difference(_lastAutomaticUpdateAttempt!) <
+            const Duration(minutes: 15)) {
+      return;
+    }
+    _lastAutomaticUpdateBuild = update.buildUuid;
+    _lastAutomaticUpdateAttempt = now;
+    unawaited(_startSupportUpdate(update, automatic: true));
+  }
+
+  Future<void> _startSupportUpdate(
+    SupportClientUpdate update, {
+    bool automatic = false,
+  }) async {
+    if (_supportUpdateStarting || !mounted) return;
+    setState(() {
+      _supportUpdateStarting = true;
+      _supportUpdateAutomatic = automatic;
+    });
+    try {
+      await bind.mainSetCommon(
+        key: _supportUpdateEvent,
+        value: update.downloadUrl,
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _supportUpdateStarting = false;
+          _supportUpdateAutomatic = false;
+        });
+      }
+      if (!automatic) {
+        showToast('Nie udało się zlecić aktualizacji: $error');
+      }
+    }
+  }
+
+  Future<void> _handleSupportUpdateEvent(Map<String, dynamic> event) async {
+    final success = event['success'] == true;
+    final automatic = _supportUpdateAutomatic;
+    if (!success && mounted) {
+      setState(() {
+        _supportUpdateStarting = false;
+        _supportUpdateAutomatic = false;
+      });
+    }
+    final message = event['message']?.toString() ?? '';
+    if (!success && automatic && message.contains('aktywne sesje')) {
+      return;
+    }
+    showToast(
+      success
+          ? 'Aktualizacja została uruchomiona w tle.'
+          : message.isNotEmpty
+              ? message
+              : 'Nie udało się uruchomić aktualizacji.',
+    );
   }
 
   @override

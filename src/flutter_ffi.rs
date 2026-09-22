@@ -2958,6 +2958,24 @@ pub fn main_set_common(_key: String, _value: String) {
                 flutter::APP_TYPE_MAIN,
                 serde_json::ser::to_string(&data).unwrap_or("".to_owned()),
             );
+        } else if _key == "support-update" {
+            #[cfg(target_os = "windows")]
+            std::thread::spawn(move || {
+                let result = crate::ipc::request_support_update(_value);
+                let (success, message) = match result {
+                    Ok(()) => (true, String::new()),
+                    Err(error) => (false, error.to_string()),
+                };
+                let data = HashMap::from([
+                    ("name", serde_json::json!("support-update")),
+                    ("success", serde_json::json!(success)),
+                    ("message", serde_json::json!(message)),
+                ]);
+                let _ = flutter::push_global_event(
+                    flutter::APP_TYPE_MAIN,
+                    serde_json::ser::to_string(&data).unwrap_or_default(),
+                );
+            });
         } else if _key == "update-me" {
             if let Some(new_version_file) = get_download_file_from_url(&_value) {
                 log::debug!(

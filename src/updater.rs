@@ -1,7 +1,7 @@
 use crate::{common::do_check_software_update, hbbs_http::create_http_client_with_url};
 use hbb_common::{bail, config, log, ResultType};
 use std::{
-    io::Write,
+    io::{Read, Write},
     path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -10,6 +10,9 @@ use std::{
     },
     time::{Duration, Instant},
 };
+
+#[cfg(all(target_os = "windows", feature = "flutter"))]
+const SUPPORT_UPDATE_MAX_BYTES: u64 = 200 * 1024 * 1024;
 
 enum UpdateMsg {
     CheckUpdate,
@@ -44,6 +47,111 @@ pub fn manually_check_update() -> ResultType<()> {
 pub fn stop_auto_update() {
     let sender = TX_MSG.lock().unwrap();
     sender.send(UpdateMsg::Exit).unwrap_or_default();
+}
+
+#[cfg(all(target_os = "windows", feature = "flutter"))]
+pub fn install_support_update(download_url: String) -> ResultType<()> {
+    if !crate::platform::is_installed() || !crate::platform::windows::is_root() {
+        bail!("Aktualizacja wymaga uruchomionej usługi systemowej.");
+    }
+    if !has_no_active_conns() {
+        bail!("Zakończ aktywne sesje przed aktualizacją.");
+    }
+
+    let configured_base = option_env!("RDBK_API_URL").unwrap_or("").trim();
+    if configured_base.is_empty() {
+        bail!("W tym buildzie nie skonfigurowano serwera aktualizacji.");
+    }
+    let base = url::Url::parse(configured_base)?;
+    let candidate = url::Url::parse(&download_url)?;
+    let same_origin = candidate.scheme() == base.scheme()
+        && candidate.host_str() == base.host_str()
+        && candidate.port_or_known_default() == base.port_or_known_default();
+    if !same_origin
+        || candidate.username() != ""
+        || candidate.password().is_some()
+        || candidate.fragment().is_some()
+        || !candidate.path().starts_with("/downloads/client-update/")
+    {
+        bail!("Serwer odrzucił nieprawidłowy adres aktualizacji.");
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(300))
+        .build()?;
+    let mut response = client.get(candidate).send()?;
+    if !response.status().is_success() {
+        bail!("Pobranie aktualizacji nie powiodło się: {}", response.status());
+    }
+    if let Some(length) = response.content_length() {
+        if length == 0 || length > SUPPORT_UPDATE_MAX_BYTES {
+            bail!("Instalator ma nieprawidłowy rozmiar.");
+        }
+    }
+
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    let installer = std::env::temp_dir().join(format!(
+        "proste-it-support-update-{}-{unique}.msi",
+        std::process::id()
+    ));
+    let mut output = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&installer)?;
+    let mut limited = response.by_ref().take(SUPPORT_UPDATE_MAX_BYTES + 1);
+    let written = std::io::copy(&mut limited, &mut output)?;
+    output.sync_all()?;
+    if written == 0 || written > SUPPORT_UPDATE_MAX_BYTES {
+        std::fs::remove_file(&installer).ok();
+        bail!("Instalator ma nieprawidłowy rozmiar.");
+    }
+    drop(output);
+
+    let mut signature = [0_u8; 8];
+    std::fs::File::open(&installer)?.read_exact(&mut signature)?;
+    if signature != [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1] {
+        std::fs::remove_file(&installer).ok();
+        bail!("Pobrany plik nie jest instalatorem MSI.");
+    }
+    if !has_no_active_conns() {
+        std::fs::remove_file(&installer).ok();
+        bail!("Zakończ aktywne sesje przed aktualizacją.");
+    }
+
+    let mut child = match std::process::Command::new("msiexec.exe")
+        .args([
+            "/i",
+            installer.to_str().ok_or_else(|| {
+                hbb_common::anyhow::anyhow!("Nieprawidłowa ścieżka instalatora.")
+            })?,
+            "/qn",
+            "LAUNCH_TRAY_APP=N",
+            "REBOOT=ReallySuppress",
+            "/norestart",
+        ])
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(error) => {
+            std::fs::remove_file(&installer).ok();
+            return Err(error.into());
+        }
+    };
+    let pid = child.id();
+    log::info!(
+        "Support update installer started, pid: {}, file: {:?}",
+        pid,
+        installer
+    );
+    std::thread::spawn(move || {
+        let _ = child.wait();
+        std::fs::remove_file(installer).ok();
+    });
+    Ok(())
 }
 
 #[inline]

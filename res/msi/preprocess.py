@@ -15,6 +15,7 @@ import shutil
 
 g_indent_unit = "\t"
 g_version = ""
+g_display_version = ""
 g_build_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
 # Replace the following links with your own in the custom arp properties.
@@ -76,7 +77,19 @@ def make_parser():
         "--app-name", type=str, default="RustDesk", help="The app name."
     )
     parser.add_argument(
+        "--upgrade-code-name",
+        type=str,
+        default="",
+        help="Stable legacy name used only to derive the MSI UpgradeCode.",
+    )
+    parser.add_argument(
         "-v", "--version", type=str, default="", help="The app version."
+    )
+    parser.add_argument(
+        "--display-version",
+        type=str,
+        default="",
+        help="Human-readable application version shown in Windows.",
     )
     parser.add_argument(
         "--revision-version", type=int, default=default_revision_version(), help="The revision version."
@@ -152,7 +165,8 @@ def gen_auto_component(app_name, dist_dir):
 
 def gen_pre_vars(args, dist_dir):
     def func(lines, index_start):
-        upgrade_code = uuid.uuid5(uuid.NAMESPACE_OID, app_name + ".exe")
+        upgrade_code_name = args.upgrade_code_name or args.app_name
+        upgrade_code = uuid.uuid5(uuid.NAMESPACE_OID, upgrade_code_name + ".exe")
 
         indent = g_indent_unit * 1
         to_insert_lines = [
@@ -317,7 +331,7 @@ def gen_custom_ARPSYSTEMCOMPONENT_True(args, dist_dir):
             f'{indent}<RegistryValue Type="string" Name="DisplayIcon" Value="[INSTALLFOLDER_INNER]{args.app_name}.exe" />\n'
         )
         lines_new.append(
-            f'{indent}<RegistryValue Type="string" Name="DisplayVersion" Value="{g_version}" />\n'
+            f'{indent}<RegistryValue Type="string" Name="DisplayVersion" Value="{g_display_version}" />\n'
         )
         lines_new.append(
             f'{indent}<RegistryValue Type="string" Name="Publisher" Value="{args.manufacturer}" />\n'
@@ -359,7 +373,7 @@ def gen_custom_ARPSYSTEMCOMPONENT_True(args, dist_dir):
         vs = g_version.split(".")
         major, minor, build = vs[0], vs[1], vs[2]
         lines_new.append(
-            f'{indent}<RegistryValue Type="string" Name="Version" Value="{g_version}" />\n'
+            f'{indent}<RegistryValue Type="string" Name="Version" Value="{g_display_version}" />\n'
         )
         lines_new.append(
             f'{indent}<RegistryValue Type="integer" Name="VersionMajor" Value="{major}" />\n'
@@ -459,15 +473,16 @@ def init_global_vars(dist_dir, app_name, args):
 
     def read_process_output(args):
         process = subprocess.Popen(
-            f"{dist_app} {args}",
+            [str(dist_app), args],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            shell=True,
+            shell=False,
         )
         output, _ = process.communicate()
         return output.decode("utf-8").strip()
 
     global g_version
+    global g_display_version
     global g_build_date
     g_version = args.version.replace("-", ".")
     if g_version == "":
@@ -481,6 +496,7 @@ def init_global_vars(dist_dir, app_name, args):
         if args.revision_version < 0 or args.revision_version > 2147483647:
             raise ValueError(f"Invalid revision version: {args.revision_version}")    
         g_version = f"{g_version}.{args.revision_version}"
+    g_display_version = args.display_version or g_version
 
     g_build_date = read_process_output("--build-date")
     build_date_pattern = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}")

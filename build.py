@@ -444,9 +444,19 @@ def build_flutter_windows(version, features, skip_portable_pack):
             print("cargo build failed, please check rust source code.")
             exit(-1)
     os.chdir('flutter')
-    rdbk_api_url = os.environ.get('RDBK_API_URL', '').strip()
-    rdbk_define = f' --dart-define=RDBK_API_URL={rdbk_api_url}' if rdbk_api_url else ''
-    system2(f'flutter build windows --release{rdbk_define}')
+    dart_defines = {
+        'RDBK_API_URL': os.environ.get('RDBK_API_URL', '').strip(),
+        'RDBK_UPDATE_CHANNEL': os.environ.get('RDBK_UPDATE_CHANNEL', '').strip(),
+        'RDBK_BUILD_UUID': os.environ.get('RDBK_BUILD_UUID', '').strip(),
+        'RDBK_BUILD_RUN_ID': os.environ.get('GITHUB_RUN_ID', '').strip(),
+        'RDBK_APP_VERSION': os.environ.get('PIT_VERSION', '').strip(),
+    }
+    define_args = ''.join(
+        f' --dart-define="{key}={value}"'
+        for key, value in dart_defines.items()
+        if value
+    )
+    system2(f'flutter build windows --release{define_args}')
     os.chdir('..')
     shutil.copy2('target/release/deps/dylib_virtual_display.dll',
                  flutter_build_dir_2)

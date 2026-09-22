@@ -10,6 +10,13 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:uuid/uuid.dart';
 
 const supportAddressBookApiUrl = String.fromEnvironment('RDBK_API_URL');
+const supportClientUpdateChannel = String.fromEnvironment(
+  'RDBK_UPDATE_CHANNEL',
+  defaultValue: 'windows_support',
+);
+const supportClientBuildUuid = String.fromEnvironment('RDBK_BUILD_UUID');
+const supportClientBuildRunId = int.fromEnvironment('RDBK_BUILD_RUN_ID');
+const supportClientVersion = String.fromEnvironment('RDBK_APP_VERSION');
 
 class SupportCustomer {
   final String id;
@@ -283,6 +290,41 @@ class SupportPresence {
   bool get occupied => sessions.isNotEmpty;
 }
 
+class SupportClientUpdate {
+  final String buildUuid;
+  final int githubRunId;
+  final String filename;
+  final String version;
+  final bool autoUpdate;
+  final int? size;
+  final String downloadUrl;
+  final DateTime? markedAt;
+
+  const SupportClientUpdate({
+    required this.buildUuid,
+    required this.githubRunId,
+    required this.filename,
+    required this.version,
+    required this.autoUpdate,
+    required this.size,
+    required this.downloadUrl,
+    required this.markedAt,
+  });
+
+  factory SupportClientUpdate.fromJson(Map<String, dynamic> json) {
+    return SupportClientUpdate(
+      buildUuid: json['build_uuid']?.toString() ?? '',
+      githubRunId: int.tryParse(json['github_run_id']?.toString() ?? '') ?? 0,
+      filename: json['filename']?.toString() ?? '',
+      version: json['version']?.toString() ?? '',
+      autoUpdate: json['auto_update'] == true,
+      size: int.tryParse(json['size']?.toString() ?? ''),
+      downloadUrl: json['download_url']?.toString() ?? '',
+      markedAt: DateTime.tryParse(json['marked_at']?.toString() ?? ''),
+    );
+  }
+}
+
 class SupportAddressBookException implements Exception {
   final String message;
 
@@ -316,8 +358,11 @@ class SupportAddressBookModel with ChangeNotifier {
   bool _backendChecking = false;
   bool _backendReachable = false;
   bool _onlineHandlerRegistered = false;
+  bool _clientUpdateChecking = false;
   String? _error;
   Timer? _retryTimer;
+  DateTime? _lastClientUpdateCheck;
+  SupportClientUpdate? _clientUpdate;
   List<SupportCustomer> _customers = const [];
   List<SupportDevice> _devices = const [];
 
@@ -341,6 +386,17 @@ class SupportAddressBookModel with ChangeNotifier {
   SupportTechnician? get technician => _technician;
   List<SupportCustomer> get customers => _customers;
   List<SupportDevice> get devices => _devices;
+  bool get clientUpdateChecking => _clientUpdateChecking;
+  SupportClientUpdate? get availableClientUpdate {
+    final update = _clientUpdate;
+    if (update == null ||
+        supportClientBuildUuid.isEmpty ||
+        supportClientBuildRunId <= 0 ||
+        update.githubRunId <= supportClientBuildRunId) {
+      return null;
+    }
+    return update;
+  }
   List<SupportPostSessionPrompt> get postSessionPrompts =>
       List.unmodifiable(_postSessionPrompts);
 
@@ -455,6 +511,9 @@ class SupportAddressBookModel with ChangeNotifier {
     } finally {
       _initialized = true;
       notifyListeners();
+      if (isAuthenticated) {
+        unawaited(checkClientUpdate(force: true));
+      }
     }
   }
 
@@ -497,6 +556,7 @@ class SupportAddressBookModel with ChangeNotifier {
       _startRetryTimer();
       await flushEventQueue();
       await refresh();
+      await checkClientUpdate(force: true);
     } catch (error) {
       _backendReachable = false;
       _error = error.toString();
@@ -530,6 +590,8 @@ class SupportAddressBookModel with ChangeNotifier {
     _backendReachable = false;
     _customers = const [];
     _devices = const [];
+    _clientUpdate = null;
+    _lastClientUpdateCheck = null;
     _retryTimer?.cancel();
     _retryTimer = null;
     await deleteSupportDeviceToken();
@@ -547,8 +609,54 @@ class SupportAddressBookModel with ChangeNotifier {
   void _startRetryTimer() {
     _retryTimer ??= Timer.periodic(
       const Duration(seconds: 30),
-      (_) => unawaited(flushEventQueue()),
+      (_) {
+        unawaited(flushEventQueue());
+        unawaited(checkClientUpdate());
+      },
     );
+  }
+
+  Future<void> checkClientUpdate({bool force = false}) async {
+    await ensureInitialized();
+    if (!isAuthenticated || _clientUpdateChecking) return;
+    final now = DateTime.now();
+    if (!force &&
+        _lastClientUpdateCheck != null &&
+        now.difference(_lastClientUpdateCheck!) < const Duration(minutes: 15)) {
+      return;
+    }
+
+    _clientUpdateChecking = true;
+    _lastClientUpdateCheck = now;
+    try {
+      final response = await http
+          .get(
+            _uri(
+              'api/v1/client-update/',
+              {'channel': supportClientUpdateChannel},
+            ),
+            headers: _headers(),
+          )
+          .timeout(const Duration(seconds: 10));
+      final body = _requireSuccess(response);
+      if (body is Map && body['configured'] == true) {
+        final update = SupportClientUpdate.fromJson(
+          Map<String, dynamic>.from(body),
+        );
+        _clientUpdate = update.buildUuid.isNotEmpty &&
+                update.filename.toLowerCase().endsWith('.msi') &&
+                update.downloadUrl.isNotEmpty
+            ? update
+            : null;
+      } else {
+        _clientUpdate = null;
+      }
+    } catch (error) {
+      debugPrint('Support client update check failed: $error');
+    } finally {
+      _clientUpdateChecking = false;
+      notifyListeners();
+    }
   }
 
   Future<void> refresh() async {
