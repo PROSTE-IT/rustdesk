@@ -61,6 +61,9 @@ jobs:
           dart format "${files[@]}"
           git diff --exit-code -- "${files[@]}"
 
+      - name: Check managed updater Rust formatting
+        run: rustfmt --edition 2021 --check src/updater.rs
+
       - name: Analyze address book models
         working-directory: flutter
         run: |

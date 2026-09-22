@@ -62,8 +62,15 @@ pub fn install_support_update(download_url: String) -> ResultType<()> {
     if configured_base.is_empty() {
         bail!("W tym buildzie nie skonfigurowano serwera aktualizacji.");
     }
+    let update_channel = option_env!("RDBK_UPDATE_CHANNEL")
+        .unwrap_or("")
+        .trim();
+    if !matches!(update_channel, "windows_support" | "windows_helpdesk") {
+        bail!("W tym buildzie nie skonfigurowano kanału aktualizacji.");
+    }
     let base = url::Url::parse(configured_base)?;
     let candidate = url::Url::parse(&download_url)?;
+    let expected_path = format!("/downloads/client-update/{update_channel}/");
     let same_origin = candidate.scheme() == base.scheme()
         && candidate.host_str() == base.host_str()
         && candidate.port_or_known_default() == base.port_or_known_default();
@@ -71,7 +78,8 @@ pub fn install_support_update(download_url: String) -> ResultType<()> {
         || candidate.username() != ""
         || candidate.password().is_some()
         || candidate.fragment().is_some()
-        || !candidate.path().starts_with("/downloads/client-update/")
+        || candidate.query().is_some()
+        || !candidate.path().starts_with(&expected_path)
     {
         bail!("Serwer odrzucił nieprawidłowy adres aktualizacji.");
     }
@@ -95,7 +103,7 @@ pub fn install_support_update(download_url: String) -> ResultType<()> {
         .duration_since(std::time::UNIX_EPOCH)?
         .as_nanos();
     let installer = std::env::temp_dir().join(format!(
-        "proste-it-support-update-{}-{unique}.msi",
+        "proste-it-client-update-{}-{unique}.msi",
         std::process::id()
     ));
     let mut output = std::fs::OpenOptions::new()
@@ -148,8 +156,9 @@ pub fn install_support_update(download_url: String) -> ResultType<()> {
     };
     let pid = child.id();
     log::info!(
-        "Support update installer started, pid: {}, file: {:?}",
+        "Managed update installer started, pid: {}, channel: {}, file: {:?}",
         pid,
+        update_channel,
         installer
     );
     std::thread::spawn(move || {

@@ -10,10 +10,11 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:uuid/uuid.dart';
 
 const supportAddressBookApiUrl = String.fromEnvironment('RDBK_API_URL');
-const supportClientUpdateChannel = String.fromEnvironment(
-  'RDBK_UPDATE_CHANNEL',
-  defaultValue: 'windows_support',
-);
+const supportClientUpdateChannel = String.fromEnvironment('RDBK_UPDATE_CHANNEL');
+const managedWindowsUpdateChannels = {
+  'windows_support',
+  'windows_helpdesk',
+};
 const supportClientBuildUuid = String.fromEnvironment('RDBK_BUILD_UUID');
 const supportClientBuildRunId = int.fromEnvironment('RDBK_BUILD_RUN_ID');
 const supportClientVersion = String.fromEnvironment('RDBK_APP_VERSION');
@@ -291,6 +292,7 @@ class SupportPresence {
 }
 
 class SupportClientUpdate {
+  final String channel;
   final String buildUuid;
   final int githubRunId;
   final String filename;
@@ -301,6 +303,7 @@ class SupportClientUpdate {
   final DateTime? markedAt;
 
   const SupportClientUpdate({
+    required this.channel,
     required this.buildUuid,
     required this.githubRunId,
     required this.filename,
@@ -313,6 +316,7 @@ class SupportClientUpdate {
 
   factory SupportClientUpdate.fromJson(Map<String, dynamic> json) {
     return SupportClientUpdate(
+      channel: json['channel']?.toString() ?? '',
       buildUuid: json['build_uuid']?.toString() ?? '',
       githubRunId: int.tryParse(json['github_run_id']?.toString() ?? '') ?? 0,
       filename: json['filename']?.toString() ?? '',
@@ -619,7 +623,11 @@ class SupportAddressBookModel with ChangeNotifier {
 
   Future<void> checkClientUpdate({bool force = false}) async {
     await ensureInitialized();
-    if (!isAuthenticated || _clientUpdateChecking) return;
+    if (!isAuthenticated ||
+        _clientUpdateChecking ||
+        !managedWindowsUpdateChannels.contains(supportClientUpdateChannel)) {
+      return;
+    }
     final now = DateTime.now();
     if (!force &&
         _lastClientUpdateCheck != null &&
@@ -644,7 +652,8 @@ class SupportAddressBookModel with ChangeNotifier {
         final update = SupportClientUpdate.fromJson(
           Map<String, dynamic>.from(body),
         );
-        _clientUpdate = update.buildUuid.isNotEmpty &&
+        _clientUpdate = update.channel == supportClientUpdateChannel &&
+                update.buildUuid.isNotEmpty &&
                 update.filename.toLowerCase().endsWith('.msi') &&
                 update.downloadUrl.isNotEmpty
             ? update
