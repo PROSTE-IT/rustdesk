@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1613,7 +1612,7 @@ class _SupportSessionStatusState extends State<_SupportSessionStatus> {
   }
 
   ({Color color, String label}) _backendStatus() {
-    switch (supportAddressBookModel.backendState) {
+    switch (supportAddressBookModel.backendConnectionState) {
       case SupportBackendConnectionState.connected:
         return (color: const Color(0xff3fc67a), label: 'RDBK');
       case SupportBackendConnectionState.checking:
