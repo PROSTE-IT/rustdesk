@@ -370,6 +370,7 @@ class SupportAddressBookModel with ChangeNotifier {
   bool _loading = false;
   bool _refreshing = false;
   bool _activeSessionsRefreshing = false;
+  DateTime? _lastActiveSessionsRefresh;
   bool _backendChecking = false;
   bool _backendReachable = false;
   bool _onlineHandlerRegistered = false;
@@ -404,6 +405,16 @@ class SupportAddressBookModel with ChangeNotifier {
   List<SupportDevice> get devices => _devices;
   List<SupportSessionSummary> get activeSessions =>
       List.unmodifiable(_activeSessions);
+
+  List<SupportSessionSummary> otherActiveSessionsFor(String rustdeskId) {
+    final normalizedId = rustdeskId.replaceAll(RegExp(r'\s+'), '');
+    final currentTechnicianId = _technician?.id;
+    return _activeSessions
+        .where((session) =>
+            session.rustdeskId.replaceAll(RegExp(r'\s+'), '') == normalizedId &&
+            session.technician?.id != currentTechnicianId)
+        .toList();
+  }
   bool get clientUpdateChecking => _clientUpdateChecking;
   SupportClientUpdate? get availableClientUpdate {
     final update = _clientUpdate;
@@ -612,6 +623,7 @@ class SupportAddressBookModel with ChangeNotifier {
     _customers = const [];
     _devices = const [];
     _activeSessions = const [];
+    _lastActiveSessionsRefresh = null;
     _clientUpdate = null;
     _lastClientUpdateCheck = null;
     _retryTimer?.cancel();
@@ -746,6 +758,13 @@ class SupportAddressBookModel with ChangeNotifier {
   Future<void> refreshActiveSessions() async {
     await ensureInitialized();
     if (!isAuthenticated || _activeSessionsRefreshing) return;
+    final now = DateTime.now();
+    if (_lastActiveSessionsRefresh != null &&
+        now.difference(_lastActiveSessionsRefresh!) <
+            const Duration(seconds: 8)) {
+      return;
+    }
+    _lastActiveSessionsRefresh = now;
     _activeSessionsRefreshing = true;
     try {
       final response = await http

@@ -984,7 +984,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
         ?.resolve(MaterialState.values.toSet());
 
     final items = <Widget>[
-      _SupportSessionStatus(ffi: widget.ffi),
+      _SupportSessionStatus(id: widget.id, ffi: widget.ffi),
       const _SupportToolbarDivider(),
       _SupportToolbarActionButton(
         icon: Icons.keyboard_command_key,
@@ -1574,9 +1574,10 @@ class _SupportToolbarDivider extends StatelessWidget {
 }
 
 class _SupportSessionStatus extends StatefulWidget {
+  final String id;
   final FFI ffi;
 
-  const _SupportSessionStatus({required this.ffi});
+  const _SupportSessionStatus({required this.id, required this.ffi});
 
   @override
   State<_SupportSessionStatus> createState() => _SupportSessionStatusState();
@@ -1584,6 +1585,7 @@ class _SupportSessionStatus extends StatefulWidget {
 
 class _SupportSessionStatusState extends State<_SupportSessionStatus> {
   Timer? _timer;
+  Timer? _presenceTimer;
 
   @override
   void initState() {
@@ -1591,11 +1593,23 @@ class _SupportSessionStatusState extends State<_SupportSessionStatus> {
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshPresence());
+    _presenceTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _refreshPresence(),
+    );
+  }
+
+  void _refreshPresence() {
+    if (supportAddressBookModel.isAuthenticated) {
+      unawaited(supportAddressBookModel.refreshActiveSessions());
+    }
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _presenceTimer?.cancel();
     super.dispose();
   }
 
@@ -1642,11 +1656,33 @@ class _SupportSessionStatusState extends State<_SupportSessionStatus> {
                 : 'Relay';
         final delay = widget.ffi.qualityMonitorModel.data.delay;
         final backend = _backendStatus();
+        final otherTechnicians = supportAddressBookModel
+            .otherActiveSessionsFor(widget.id)
+            .map((session) =>
+                session.technician?.displayName.isNotEmpty == true
+                    ? session.technician!.displayName
+                    : session.technician?.username ?? 'nieznany technik')
+            .toSet()
+            .toList();
+        final occupied = otherTechnicians.isNotEmpty;
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Tooltip(
+                message: occupied
+                    ? 'UWAGA: podłączony technik: ${otherTechnicians.join(', ')}'
+                    : 'Brak innego technika na tym hoście',
+                child: Icon(
+                  Icons.priority_high_rounded,
+                  size: 17,
+                  color: occupied
+                      ? const Color(0xfff2ad3b)
+                      : Colors.white24,
+                ),
+              ),
+              const SizedBox(width: 6),
               const Icon(Icons.schedule, size: 16, color: Colors.white70),
               const SizedBox(width: 5),
               Text(
