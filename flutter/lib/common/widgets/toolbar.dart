@@ -329,7 +329,8 @@ void showWaylandKeyboardInputWarningDialog(
   unawaited(dialogFuture.whenComplete(() => dialogClosed = true));
 }
 
-List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
+List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi,
+    {bool excludeSupportPrimaryActions = false}) {
   final ffiModel = ffi.ffiModel;
   final pi = ffiModel.pi;
   final perms = ffiModel.permissions;
@@ -465,11 +466,13 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
   }
 
   if (isDefaultConn && isDesktop) {
-    v.add(
-      TTextMenu(
-          child: Text(translate('Transfer file')),
-          onPressed: () => connectWithToken(isFileTransfer: true)),
-    );
+    if (!excludeSupportPrimaryActions) {
+      v.add(
+        TTextMenu(
+            child: Text(translate('Transfer file')),
+            onPressed: () => connectWithToken(isFileTransfer: true)),
+      );
+    }
     v.add(
       TTextMenu(
           child: Text(translate('View camera')),
@@ -514,7 +517,8 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
     v.add(TTextMenu(child: Offstage(), onPressed: () {}, divider: true));
   }
   // ctrlAltDel
-  if (isDefaultConn &&
+  if (!excludeSupportPrimaryActions &&
+      isDefaultConn &&
       !ffiModel.viewOnly &&
       ffiModel.keyboard &&
       (pi.platform == kPeerPlatformLinux || pi.sasEnabled)) {
@@ -538,7 +542,10 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
     );
   }
   // insertLock
-  if (isDefaultConn && !ffiModel.viewOnly && ffi.ffiModel.keyboard) {
+  if (!excludeSupportPrimaryActions &&
+      isDefaultConn &&
+      !ffiModel.viewOnly &&
+      ffi.ffiModel.keyboard) {
     v.add(
       TTextMenu(
           child: Text(translate('Insert Lock')),
@@ -546,7 +553,8 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
     );
   }
   // blockUserInput
-  if (isDefaultConn &&
+  if (!excludeSupportPrimaryActions &&
+      isDefaultConn &&
       ffi.ffiModel.keyboard &&
       ffi.ffiModel.permissions['block_input'] != false &&
       pi.platform == kPeerPlatformWindows) // privacy-mode != true ??
@@ -770,7 +778,8 @@ Future<List<TRadioMenu<String>>> toolbarCodec(
 }
 
 Future<List<TToggleMenu>> toolbarCursor(
-    BuildContext context, String id, FFI ffi) async {
+    BuildContext context, String id, FFI ffi,
+    {bool excludeFollowRemoteWindow = false}) async {
   List<TToggleMenu> v = [];
   final ffiModel = ffi.ffiModel;
   final pi = ffiModel.pi;
@@ -842,7 +851,8 @@ Future<List<TToggleMenu>> toolbarCursor(
         }));
   }
   // follow remote window focus
-  if (pi.platform != kPeerPlatformAndroid &&
+  if (!excludeFollowRemoteWindow &&
+      pi.platform != kPeerPlatformAndroid &&
       !ffi.canvasModel.cursorEmbedded &&
       !pi.isWayland &&
       versionCmp(pi.version, "1.2.4") >= 0 &&
@@ -884,7 +894,8 @@ Future<List<TToggleMenu>> toolbarCursor(
 }
 
 Future<List<TToggleMenu>> toolbarDisplayToggle(
-    BuildContext context, String id, FFI ffi) async {
+    BuildContext context, String id, FFI ffi,
+    {bool excludeLockAfterSessionEnd = false}) async {
   List<TToggleMenu> v = [];
   final ffiModel = ffi.ffiModel;
   final pi = ffiModel.pi;
@@ -960,7 +971,10 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
         child: Text(translate('Disable clipboard'))));
   }
   // lock after session end
-  if (isDefaultConn && ffiModel.keyboard && !ffiModel.isPeerAndroid) {
+  if (!excludeLockAfterSessionEnd &&
+      isDefaultConn &&
+      ffiModel.keyboard &&
+      !ffiModel.isPeerAndroid) {
     final enabled = !ffiModel.viewOnly;
     final option = 'lock-after-session-end';
     final value =

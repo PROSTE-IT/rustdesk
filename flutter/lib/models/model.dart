@@ -2213,6 +2213,10 @@ class CanvasModel with ChangeNotifier {
   // image scale
   double _scale = 1.0;
   double _devicePixelRatio = 1.0;
+  // Extra desktop UI placed between the tab bar and the remote canvas.
+  // The support toolbar uses its own row in windowed mode instead of
+  // covering the remote image.
+  double _desktopTopInset = 0.0;
   Size _size = Size.zero;
   // the tabbar over the image
   // double tabBarHeight = 0.0;
@@ -2261,6 +2265,7 @@ class CanvasModel with ChangeNotifier {
   double get y => _y;
   double get scale => _scale;
   double get devicePixelRatio => _devicePixelRatio;
+  double get desktopTopInset => _desktopTopInset;
   Size get size => _size;
   ScrollStyle get scrollStyle => _scrollStyle;
   ViewStyle get viewStyle => _lastViewStyle;
@@ -2302,7 +2307,7 @@ class CanvasModel with ChangeNotifier {
     final size = mediaData.size;
     // If minimized, w or h may be negative here.
     double w = size.width - leftToEdge - rightToEdge;
-    double h = size.height - topToEdge - bottomToEdge;
+    double h = size.height - topToEdge - bottomToEdge - _desktopTopInset;
     if (isMobile) {
       // Account for horizontal safe area insets on both orientations.
       w = w - mediaData.padding.left - mediaData.padding.right;
@@ -2342,6 +2347,13 @@ class CanvasModel with ChangeNotifier {
   }
 
   updateSize() => _size = getSize();
+
+  void setDesktopTopInset(double value) {
+    final next = value < 0 ? 0.0 : value;
+    if ((_desktopTopInset - next).abs() < 0.01) return;
+    _desktopTopInset = next;
+    updateViewStyle(refreshMousePos: false);
+  }
 
   updateViewStyle({refreshMousePos = true, notify = true}) async {
     final style = await bind.sessionGetViewStyle(sessionId: sessionId);

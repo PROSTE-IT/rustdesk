@@ -22,11 +22,14 @@ import 'package:window_size/window_size.dart' as window_size;
 import '../../common.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
+import '../../models/support_address_book_model.dart';
 import '../../common/shared_state.dart';
 import './popup_menu.dart';
 import './kb_layout_type_chooser.dart';
 import 'package:flutter_hbb/utils/scale.dart';
 import 'package:flutter_hbb/common/widgets/custom_scale_base.dart';
+
+const double kSupportRemoteToolbarHeight = 48.0;
 
 enum _ToolbarEdge { top, right, bottom, left }
 
@@ -446,6 +449,7 @@ class RemoteToolbar extends StatefulWidget {
   final Function(int, Function(bool)) onEnterOrLeaveImageSetter;
   final Function(int) onEnterOrLeaveImageCleaner;
   final Function(VoidCallback) setRemoteState;
+  final bool embedded;
 
   RemoteToolbar({
     Key? key,
@@ -455,6 +459,7 @@ class RemoteToolbar extends StatefulWidget {
     required this.onEnterOrLeaveImageSetter,
     required this.onEnterOrLeaveImageCleaner,
     required this.setRemoteState,
+    this.embedded = false,
   }) : super(key: key);
 
   @override
@@ -499,6 +504,9 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
 
   PeerInfo get pi => widget.ffi.ffiModel.pi;
   FfiModel get ffiModel => widget.ffi.ffiModel;
+  bool get _useSupportToolbar =>
+      supportAddressBookModel.enabled &&
+      widget.ffi.connType == ConnType.defaultConn;
 
   triggerAutoHide() => _debouncerHide.value = _debouncerHide.value + 1;
 
@@ -686,6 +694,9 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
 
   @override
   Widget build(BuildContext context) {
+    if (_useSupportToolbar && widget.embedded) {
+      return _buildSupportToolbarMaterial(context, embedded: true);
+    }
     return Obx(() {
       // Wait for initialization to complete to prevent flickering
       if (!widget.state.initialized.value ||
@@ -696,7 +707,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       if (hide.value) {
         return const SizedBox.shrink();
       }
-      final edge = _edge.value;
+      final edge = _useSupportToolbar ? _ToolbarEdge.top : _edge.value;
       final isHorizontal = _isHorizontalEdge(edge);
 
       // Measure the live toolbar after every layout so the preview ghost can
@@ -715,7 +726,9 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
         child: KeyedSubtree(
           key: _toolbarKey,
           child: collapse.isFalse
-              ? _buildToolbar(context, edge, isHorizontal)
+              ? (_useSupportToolbar
+                  ? _buildSupportOverlayToolbar(context)
+                  : _buildToolbar(context, edge, isHorizontal))
               : _buildDraggableCollapse(context, edge, isHorizontal),
         ),
       );
@@ -902,6 +915,150 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       direction: outerAxis,
       mainAxisSize: MainAxisSize.min,
       children: children,
+    );
+  }
+
+  Widget _buildSupportOverlayToolbar(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildSupportToolbarMaterial(context, embedded: false),
+        _buildDraggableCollapse(context, _ToolbarEdge.top, true),
+      ],
+    );
+  }
+
+  Widget _buildSupportToolbarMaterial(BuildContext context,
+      {required bool embedded}) {
+    final canSendCad = !ffiModel.viewOnly &&
+        ffiModel.keyboard &&
+        (pi.platform == kPeerPlatformLinux || pi.sasEnabled);
+    final canTransferFiles = isDesktop;
+    final canLock = !ffiModel.viewOnly && ffiModel.keyboard;
+    final canBlockInteractions = ffiModel.keyboard &&
+        ffiModel.permissions['block_input'] != false &&
+        pi.platform == kPeerPlatformWindows;
+    final background = Theme.of(context)
+        .menuBarTheme
+        .style
+        ?.backgroundColor
+        ?.resolve(MaterialState.values.toSet());
+
+    final items = <Widget>[
+      _SupportToolbarActionButton(
+        icon: Icons.keyboard_command_key,
+        label: 'Ctrl+Alt+Del',
+        tooltip: canSendCad
+            ? 'Insert Ctrl + Alt + Del'
+            : 'Ctrl+Alt+Del is not available for this connection',
+        onPressed: canSendCad
+            ? () => bind.sessionCtrlAltDel(sessionId: widget.ffi.sessionId)
+            : null,
+      ),
+      _SupportToolbarActionButton(
+        icon: Icons.folder_copy_outlined,
+        label: translate('Transfer file'),
+        tooltip: canTransferFiles
+            ? 'Transfer file'
+            : 'File transfer is not available for this connection',
+        onPressed: canTransferFiles
+            ? () {
+                final connToken =
+                    bind.sessionGetConnToken(sessionId: widget.ffi.sessionId);
+                connect(context, widget.id,
+                    isFileTransfer: true, connToken: connToken);
+              }
+            : null,
+      ),
+      _SupportTextChatButton(id: widget.id, ffi: widget.ffi),
+      Obx(() {
+        final blockInput = BlockInputState.find(widget.id);
+        return _SupportToolbarActionButton(
+          icon: blockInput.value
+              ? Icons.touch_app_outlined
+              : Icons.do_not_touch_outlined,
+          label: translate(
+              blockInput.value ? 'Unblock user input' : 'Block user input'),
+          tooltip: canBlockInteractions
+              ? (blockInput.value ? 'Unblock user input' : 'Block user input')
+              : 'Blocking interactions is not available for this connection',
+          active: blockInput.value,
+          onPressed: canBlockInteractions
+              ? () {
+                  bind.sessionToggleOption(
+                      sessionId: widget.ffi.sessionId,
+                      value: '${blockInput.value ? 'un' : ''}block-input');
+                  blockInput.value = !blockInput.value;
+                }
+              : null,
+        );
+      }),
+      _SupportToolbarActionButton(
+        icon: Icons.lock_outline,
+        label: translate('Lock screen'),
+        tooltip: canLock
+            ? 'Insert Lock'
+            : 'Lock screen is not available for this connection',
+        onPressed: canLock
+            ? () => bind.sessionLockScreen(sessionId: widget.ffi.sessionId)
+            : null,
+      ),
+      _SupportTrackingButton(id: widget.id, ffi: widget.ffi),
+      const _SupportToolbarDivider(),
+      _SupportMonitorButtons(
+        id: widget.id,
+        ffi: widget.ffi,
+        setRemoteState: widget.setRemoteState,
+      ),
+      const _SupportToolbarDivider(),
+      _DisplayMenu(
+        id: widget.id,
+        ffi: widget.ffi,
+        state: widget.state,
+        setFullscreen: _setFullscreen,
+        excludeFollowRemoteWindow: true,
+      ),
+      _KeyboardMenu(id: widget.id, ffi: widget.ffi),
+      if (!isWeb) _VoiceCallMenu(id: widget.id, ffi: widget.ffi),
+      if (!isWeb) const _RecordMenu(),
+      _SupportMoreMenu(id: widget.id, ffi: widget.ffi),
+      _CloseMenu(id: widget.id, ffi: widget.ffi),
+    ];
+
+    final content = Theme(
+      data: themeData(),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(width: 6),
+            ...items,
+            const SizedBox(width: 6),
+          ],
+        ),
+      ),
+    );
+
+    return Material(
+      elevation: embedded ? 0 : _ToolbarTheme.elevation,
+      shadowColor: MyTheme.color(context).shadow,
+      color: background,
+      child: SizedBox(
+        height: kSupportRemoteToolbarHeight,
+        child: embedded
+            ? DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: _ToolbarTheme.borderColor(context),
+                    ),
+                  ),
+                ),
+                child: content,
+              )
+            : content,
+      ),
     );
   }
 
@@ -1331,6 +1488,304 @@ class _ControlMenu extends StatelessWidget {
   }
 }
 
+class _SupportToolbarDivider extends StatelessWidget {
+  const _SupportToolbarDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 24,
+      margin: const EdgeInsets.symmetric(horizontal: 5),
+      color: _ToolbarTheme.dividerColor(context),
+    );
+  }
+}
+
+class _SupportToolbarActionButton extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final bool active;
+
+  const _SupportToolbarActionButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.tooltip,
+    required this.onPressed,
+    this.active = false,
+  });
+
+  @override
+  State<_SupportToolbarActionButton> createState() =>
+      _SupportToolbarActionButtonState();
+}
+
+class _SupportToolbarActionButtonState
+    extends State<_SupportToolbarActionButton> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.onPressed != null;
+    final foreground = enabled ? Colors.white : Colors.white38;
+    final background = widget.active
+        ? _ToolbarTheme.blueColor
+        : _hover && enabled
+            ? _ToolbarTheme.hoverInactiveColor
+            : Colors.transparent;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+      child: Tooltip(
+        message: translate(widget.tooltip),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(_ToolbarTheme.iconRadius),
+          onHover: (value) => setState(() => _hover = value),
+          onTap: widget.onPressed,
+          child: Container(
+            height: _ToolbarTheme.buttonSize,
+            padding: const EdgeInsets.symmetric(horizontal: 9),
+            decoration: BoxDecoration(
+              color: background,
+              borderRadius: BorderRadius.circular(_ToolbarTheme.iconRadius),
+              border: widget.active
+                  ? Border.all(color: _ToolbarTheme.hoverBlueColor)
+                  : null,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(widget.icon, size: 18, color: foreground),
+                const SizedBox(width: 6),
+                Text(
+                  widget.label,
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: 13,
+                    fontWeight:
+                        widget.active ? FontWeight.w600 : FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SupportTextChatButton extends StatefulWidget {
+  final String id;
+  final FFI ffi;
+
+  const _SupportTextChatButton({required this.id, required this.ffi});
+
+  @override
+  State<_SupportTextChatButton> createState() => _SupportTextChatButtonState();
+}
+
+class _SupportTextChatButtonState extends State<_SupportTextChatButton> {
+  final _buttonKey = GlobalKey();
+
+  void _openChat() {
+    final renderBox =
+        _buttonKey.currentContext?.findRenderObject() as RenderBox?;
+    Offset? initPos;
+    if (renderBox != null) {
+      final pos = renderBox.localToGlobal(Offset.zero);
+      initPos = Offset(pos.dx, pos.dy + renderBox.size.height);
+    }
+    widget.ffi.chatModel
+        .changeCurrentKey(MessageKey(widget.ffi.id, ChatModel.clientModeID));
+    widget.ffi.chatModel.toggleChatOverlay(chatInitPos: initPos);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _SupportToolbarActionButton(
+      key: _buttonKey,
+      icon: Icons.chat_bubble_outline,
+      label: translate('Text chat'),
+      tooltip: 'Text chat',
+      onPressed: _openChat,
+    );
+  }
+}
+
+class _SupportTrackingButton extends StatefulWidget {
+  final String id;
+  final FFI ffi;
+
+  const _SupportTrackingButton({required this.id, required this.ffi});
+
+  @override
+  State<_SupportTrackingButton> createState() => _SupportTrackingButtonState();
+}
+
+class _SupportTrackingButtonState extends State<_SupportTrackingButton> {
+  static const _sessionOption = 'follow-remote-window';
+  bool _busy = false;
+
+  String? _unavailableReason(PeerInfo pi) {
+    if (pi.platform == kPeerPlatformAndroid) {
+      return 'Tracking is not available on Android';
+    }
+    if (widget.ffi.canvasModel.cursorEmbedded) {
+      return 'Tracking is not available with an embedded cursor';
+    }
+    if (pi.isWayland) {
+      return 'Tracking is not available on Wayland';
+    }
+    if (versionCmp(pi.version, '1.2.4') < 0) {
+      return 'Tracking requires RustDesk 1.2.4 or newer';
+    }
+    if (pi.displays.length <= 1) {
+      return 'Tracking requires at least two displays';
+    }
+    if (CurrentDisplayState.find(widget.id).value == kAllDisplayValue) {
+      return 'Select one display to enable tracking';
+    }
+    if (bind.sessionIsMultiUiSession(sessionId: widget.ffi.sessionId)) {
+      return 'Tracking is unavailable when displays use separate windows';
+    }
+    return null;
+  }
+
+  Future<void> _toggle() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    await bind.sessionToggleOption(
+        sessionId: widget.ffi.sessionId, value: _sessionOption);
+    final active = bind.sessionGetToggleOptionSync(
+        sessionId: widget.ffi.sessionId, arg: _sessionOption);
+    await bind.mainSetUserDefaultOption(
+        key: kOptionFollowRemoteWindow, value: active ? 'Y' : 'N');
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      // Rebuild when the selected display changes, including the "all" view.
+      CurrentDisplayState.find(widget.id).value;
+      final reason = _unavailableReason(widget.ffi.ffiModel.pi);
+      final active = bind.sessionGetToggleOptionSync(
+          sessionId: widget.ffi.sessionId, arg: _sessionOption);
+      return _SupportToolbarActionButton(
+        icon: Icons.track_changes,
+        label: translate('Tracking'),
+        tooltip: reason ??
+            (active ? 'Disable tracking' : 'Follow remote window focus'),
+        active: active,
+        onPressed: reason == null && !_busy ? _toggle : null,
+      );
+    });
+  }
+}
+
+class _SupportMonitorButtons extends StatelessWidget {
+  final String id;
+  final FFI ffi;
+  final Function(VoidCallback) setRemoteState;
+
+  const _SupportMonitorButtons({
+    required this.id,
+    required this.ffi,
+    required this.setRemoteState,
+  });
+
+  void _select(int display) {
+    if (CurrentDisplayState.find(id).value == display) return;
+    openMonitorInTheSameTab(
+      display,
+      ffi,
+      ffi.ffiModel.pi,
+      updateCursorPos: display != kAllDisplayValue,
+    );
+    setRemoteState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      final current = CurrentDisplayState.find(id).value;
+      final privacyMode = PrivacyModeState.find(id);
+      final canSwitch = privacyMode.isEmpty ||
+          allowDisplaySwitchInPrivacyMode(ffi.ffiModel.pi, privacyMode.value);
+      final count = ffi.ffiModel.pi.displays.length;
+      final buttons = <Widget>[];
+      for (var i = 0; i < count; i++) {
+        buttons.add(_SupportToolbarActionButton(
+          icon: Icons.monitor_outlined,
+          label: '${i + 1}',
+          tooltip:
+              canSwitch ? 'Display ${i + 1}' : 'Display switching disabled',
+          active: current == i,
+          onPressed: canSwitch ? () => _select(i) : null,
+        ));
+      }
+      if (count > 1 && ffi.ffiModel.pi.isSupportMultiDisplay) {
+        buttons.add(_SupportToolbarActionButton(
+          icon: Icons.grid_view_outlined,
+          label: 'A',
+          tooltip: canSwitch ? 'All displays' : 'Display switching disabled',
+          active: current == kAllDisplayValue,
+          onPressed: canSwitch ? () => _select(kAllDisplayValue) : null,
+        ));
+      }
+      return Row(mainAxisSize: MainAxisSize.min, children: buttons);
+    });
+  }
+}
+
+class _SupportMoreMenu extends StatelessWidget {
+  final String id;
+  final FFI ffi;
+
+  const _SupportMoreMenu({required this.id, required this.ffi});
+
+  @override
+  Widget build(BuildContext context) {
+    return _IconSubmenuButton(
+      tooltip: 'More',
+      icon: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.more_horiz, size: 18, color: Colors.white),
+          const SizedBox(width: 5),
+          Text(
+            translate('More'),
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+          ),
+        ],
+      ),
+      width: 86,
+      color: _ToolbarTheme.inactiveColor,
+      hoverColor: _ToolbarTheme.hoverInactiveColor,
+      ffi: ffi,
+      menuChildrenGetter: (_) => toolbarControls(
+        context,
+        id,
+        ffi,
+        excludeSupportPrimaryActions: true,
+      ).map((entry) {
+        if (entry.divider) return const Divider();
+        return MenuButton(
+          child: entry.child,
+          onPressed: entry.onPressed,
+          ffi: ffi,
+          trailingIcon: entry.trailingIcon,
+        );
+      }).toList(),
+    );
+  }
+}
+
 class ScreenAdjustor {
   final String id;
   final FFI ffi;
@@ -1479,12 +1934,14 @@ class _DisplayMenu extends StatefulWidget {
   final ToolbarState state;
   final Function(bool) setFullscreen;
   final Widget pluginItem;
+  final bool excludeFollowRemoteWindow;
   _DisplayMenu(
       {Key? key,
       required this.id,
       required this.ffi,
       required this.state,
-      required this.setFullscreen})
+      required this.setFullscreen,
+      this.excludeFollowRemoteWindow = false})
       : pluginItem = LocationItem.createLocationItem(
           id,
           ffi,
@@ -1784,7 +2241,8 @@ class _DisplayMenuState extends State<_DisplayMenu> {
 
   cursorToggles() {
     return futureBuilder(
-        future: toolbarCursor(context, id, ffi),
+        future: toolbarCursor(context, id, ffi,
+            excludeFollowRemoteWindow: widget.excludeFollowRemoteWindow),
         hasData: (data) {
           final v = data as List<TToggleMenu>;
           if (v.isEmpty) return Offstage();
@@ -1803,7 +2261,8 @@ class _DisplayMenuState extends State<_DisplayMenu> {
 
   toggles() {
     return futureBuilder(
-        future: toolbarDisplayToggle(context, id, ffi),
+        future: toolbarDisplayToggle(context, id, ffi,
+            excludeLockAfterSessionEnd: widget.excludeFollowRemoteWindow),
         hasData: (data) {
           final v = data as List<TToggleMenu>;
           if (v.isEmpty) return Offstage();

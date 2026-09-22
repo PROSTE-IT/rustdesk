@@ -1935,7 +1935,7 @@ class InputModel {
       }
     }
 
-    y -= CanvasModel.topToEdge;
+    y -= CanvasModel.topToEdge + parent.target!.canvasModel.desktopTopInset;
     x -= CanvasModel.leftToEdge;
     if (isMove) {
       final canvasModel = parent.target!.canvasModel;

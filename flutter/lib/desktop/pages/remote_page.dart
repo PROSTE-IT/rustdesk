@@ -122,6 +122,16 @@ class _RemotePageState extends State<RemotePage>
 
   SessionID get sessionId => _ffi.sessionId;
 
+  bool get _useSupportToolbar =>
+      supportAddressBookModel.enabled && _ffi.connType == ConnType.defaultConn;
+
+  void _syncSupportToolbarInset(double value) {
+    if ((_ffi.canvasModel.desktopTopInset - value).abs() < 0.01) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _ffi.canvasModel.setDesktopTopInset(value);
+    });
+  }
+
   _RemotePageState(String id) {
     _initStates(id);
   }
@@ -259,10 +269,12 @@ class _RemotePageState extends State<RemotePage>
     _supportServerProfileApplying = true;
     try {
       if (_supportPeerIsServer == null) {
+        await _setSupportLockAfterSessionEnd(false);
         final device = await supportAddressBookModel.lookup(widget.id);
         _supportPeerIsServer = device?.deviceType == 'server';
-        if (_supportPeerIsServer != true) return;
       }
+      await _setSupportLockAfterSessionEnd(_supportPeerIsServer == true);
+      if (_supportPeerIsServer != true) return;
 
       if (!_supportServerImageProfileApplied) {
         await bind.sessionSetImageQuality(
@@ -309,6 +321,15 @@ class _RemotePageState extends State<RemotePage>
       debugPrintStack(stackTrace: stackTrace);
     } finally {
       _supportServerProfileApplying = false;
+    }
+  }
+
+  Future<void> _setSupportLockAfterSessionEnd(bool enabled) async {
+    const option = 'lock-after-session-end';
+    final current =
+        bind.sessionGetToggleOptionSync(sessionId: sessionId, arg: option);
+    if (current != enabled) {
+      await bind.sessionToggleOption(sessionId: sessionId, value: option);
     }
   }
 
@@ -602,9 +623,21 @@ class _RemotePageState extends State<RemotePage>
       clearWaylandKeyboardPromptSuppressedForConnection(sessionId.toString());
     }
     if (offerSupportAddressBook && supportAddressBookModel.enabled) {
-      // Apply the same post-session protection to workstations and servers.
-      bind.sessionLockScreen(sessionId: sessionId);
-      await Future<void>.delayed(const Duration(milliseconds: 300));
+      if (_supportPeerIsServer == null) {
+        try {
+          final device = await supportAddressBookModel.lookup(widget.id);
+          _supportPeerIsServer = device?.deviceType == 'server';
+        } catch (error) {
+          debugPrint(
+              'Failed to resolve the RDBK device type before closing: $error');
+        }
+      }
+      // Workstations stay usable after support. Servers keep the defensive
+      // lock-on-disconnect policy.
+      if (_supportPeerIsServer == true) {
+        bind.sessionLockScreen(sessionId: sessionId);
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      }
     }
     await _ffi.close(closeSession: closeSession);
     _ffi.dialogManager.dismissAll();
@@ -662,7 +695,8 @@ class _RemotePageState extends State<RemotePage>
       );
 
   Widget buildBody(BuildContext context) {
-    remoteToolbar(BuildContext context) => RemoteToolbar(
+    remoteToolbar(BuildContext context, {bool embedded = false}) =>
+        RemoteToolbar(
           id: widget.id,
           ffi: _ffi,
           state: widget.toolbarState,
@@ -679,9 +713,10 @@ class _RemotePageState extends State<RemotePage>
             }
           },
           setRemoteState: setState,
+          embedded: embedded,
         );
 
-    bodyWidget() {
+    remoteSurface({required bool showToolbarOverlay}) {
       return Stack(
         children: [
           Container(
@@ -733,16 +768,38 @@ class _RemotePageState extends State<RemotePage>
               // Use Overlay to enable rebuild every time on menu button click.
               // Hide toolbar when relative mouse mode is active to prevent
               // cursor from escaping to toolbar area.
-              Obx(() => _ffi.inputModel.relativeMouseMode.value
-                  ? const Offstage()
-                  : _ffi.ffiModel.pi.isSet.isTrue
-                      ? Overlay(initialEntries: [
-                          OverlayEntry(builder: remoteToolbar)
-                        ])
-                      : remoteToolbar(context)),
+              if (showToolbarOverlay)
+                Obx(() => _ffi.inputModel.relativeMouseMode.value
+                    ? const Offstage()
+                    : _ffi.ffiModel.pi.isSet.isTrue
+                        ? Overlay(initialEntries: [
+                            OverlayEntry(
+                                builder: (context) => remoteToolbar(context))
+                          ])
+                        : remoteToolbar(context)),
               _ffi.ffiModel.pi.isSet.isFalse ? emptyOverlay() : Offstage(),
             ],
           ),
+        ],
+      );
+    }
+
+    bodyWidget() {
+      final embedSupportToolbar =
+          _useSupportToolbar && stateGlobal.fullscreen.isFalse;
+      _syncSupportToolbarInset(
+          embedSupportToolbar ? kSupportRemoteToolbarHeight : 0);
+      final surface = remoteSurface(showToolbarOverlay: !embedSupportToolbar);
+      if (!embedSupportToolbar) return surface;
+      return Column(
+        children: [
+          SizedBox(
+            height: kSupportRemoteToolbarHeight,
+            child: Obx(() => _ffi.inputModel.relativeMouseMode.value
+                ? const Offstage()
+                : remoteToolbar(context, embedded: true)),
+          ),
+          Expanded(child: surface),
         ],
       );
     }
