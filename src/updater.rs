@@ -122,7 +122,12 @@ pub fn install_support_update(download_url: String) -> ResultType<()> {
         bail!("Zakończ aktywne sesje przed aktualizacją.");
     }
 
-    let mut child = match std::process::Command::new("msiexec.exe")
+    let system_root = std::env::var_os("SystemRoot")
+        .ok_or_else(|| hbb_common::anyhow::anyhow!("Brak katalogu systemowego Windows."))?;
+    let msiexec = PathBuf::from(system_root)
+        .join("System32")
+        .join("msiexec.exe");
+    let mut child = match std::process::Command::new(msiexec)
         .args([
             "/i",
             installer.to_str().ok_or_else(|| {
