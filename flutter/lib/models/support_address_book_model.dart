@@ -10,7 +10,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:uuid/uuid.dart';
 
 const supportAddressBookApiUrl = String.fromEnvironment('RDBK_API_URL');
-const supportClientUpdateChannel = String.fromEnvironment('RDBK_UPDATE_CHANNEL');
+const supportClientUpdateChannel =
+    String.fromEnvironment('RDBK_UPDATE_CHANNEL');
 const managedWindowsUpdateChannels = {
   'windows_support',
   'windows_helpdesk',
