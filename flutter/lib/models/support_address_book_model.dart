@@ -415,6 +415,7 @@ class SupportAddressBookModel with ChangeNotifier {
             session.technician?.id != currentTechnicianId)
         .toList();
   }
+
   bool get clientUpdateChecking => _clientUpdateChecking;
   SupportClientUpdate? get availableClientUpdate {
     final update = _clientUpdate;

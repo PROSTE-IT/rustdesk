@@ -1658,10 +1658,9 @@ class _SupportSessionStatusState extends State<_SupportSessionStatus> {
         final backend = _backendStatus();
         final otherTechnicians = supportAddressBookModel
             .otherActiveSessionsFor(widget.id)
-            .map((session) =>
-                session.technician?.displayName.isNotEmpty == true
-                    ? session.technician!.displayName
-                    : session.technician?.username ?? 'nieznany technik')
+            .map((session) => session.technician?.displayName.isNotEmpty == true
+                ? session.technician!.displayName
+                : session.technician?.username ?? 'nieznany technik')
             .toSet()
             .toList();
         final occupied = otherTechnicians.isNotEmpty;
@@ -1677,9 +1676,7 @@ class _SupportSessionStatusState extends State<_SupportSessionStatus> {
                 child: Icon(
                   Icons.priority_high_rounded,
                   size: 17,
-                  color: occupied
-                      ? const Color(0xfff2ad3b)
-                      : Colors.white24,
+                  color: occupied ? const Color(0xfff2ad3b) : Colors.white24,
                 ),
               ),
               const SizedBox(width: 6),
