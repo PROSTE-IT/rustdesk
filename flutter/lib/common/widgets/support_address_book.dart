@@ -101,7 +101,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
 
   Future<void> _silentRefresh() async {
     try {
-      await supportAddressBookModel.refresh();
+      await supportAddressBookModel.refresh(silent: true);
     } catch (error) {
       debugPrint('Support address book synchronization failed: $error');
     }
@@ -369,6 +369,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                           .where((device) => device.customerId == customer.id)
                           .length;
                       return ListTile(
+                        key: ValueKey('support-customer-${customer.id}'),
                         selected: selectedCustomerId == customer.id,
                         leading: const Icon(Icons.business_outlined),
                         title: Text(customer.name,
@@ -521,6 +522,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
   Widget _buildDevice(SupportDevice device) {
     final critical = device.isCritical || device.warning.isNotEmpty;
     return Card(
+      key: ValueKey('support-device-${device.id}'),
       margin: const EdgeInsets.only(bottom: 8),
       color: critical ? Theme.of(context).colorScheme.errorContainer : null,
       child: Padding(

@@ -45,8 +45,10 @@ class PeerTabModel with ChangeNotifier {
     true,
     true,
     !isWeb && bind.mainGetLocalOption(key: "disable-discovery-panel") != "Y",
-    !(bind.isDisableAb() || bind.isDisableAccount()),
-    !(bind.isDisableGroupPanel() || bind.isDisableAccount()),
+    supportAddressBookApiUrl.trim().isEmpty &&
+        !(bind.isDisableAb() || bind.isDisableAccount()),
+    supportAddressBookApiUrl.trim().isEmpty &&
+        !(bind.isDisableGroupPanel() || bind.isDisableAccount()),
     isDesktop && supportAddressBookApiUrl.trim().isNotEmpty,
   ]);
   final List<bool> _isVisible = List.filled(maxTabCount, true, growable: false);

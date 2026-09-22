@@ -167,6 +167,8 @@ class SupportTechnician {
 class SupportSessionSummary {
   final String id;
   final String rustdeskId;
+  final String customerName;
+  final String deviceName;
   final SupportTechnician? technician;
   final String technicianDeviceName;
   final DateTime? startedAt;
@@ -179,6 +181,8 @@ class SupportSessionSummary {
   const SupportSessionSummary({
     required this.id,
     required this.rustdeskId,
+    required this.customerName,
+    required this.deviceName,
     required this.technician,
     required this.technicianDeviceName,
     required this.startedAt,
@@ -194,6 +198,8 @@ class SupportSessionSummary {
     return SupportSessionSummary(
       id: json['id']?.toString() ?? '',
       rustdeskId: json['rustdesk_id']?.toString() ?? '',
+      customerName: json['customer_name']?.toString() ?? '',
+      deviceName: json['device_name']?.toString() ?? '',
       technician: technician is Map
           ? SupportTechnician.fromJson(Map<String, dynamic>.from(technician))
           : null,
@@ -360,6 +366,8 @@ class SupportAddressBookModel with ChangeNotifier {
   String _tokenType = 'Device';
   SupportTechnician? _technician;
   bool _loading = false;
+  bool _refreshing = false;
+  bool _activeSessionsRefreshing = false;
   bool _backendChecking = false;
   bool _backendReachable = false;
   bool _onlineHandlerRegistered = false;
@@ -370,6 +378,7 @@ class SupportAddressBookModel with ChangeNotifier {
   SupportClientUpdate? _clientUpdate;
   List<SupportCustomer> _customers = const [];
   List<SupportDevice> _devices = const [];
+  List<SupportSessionSummary> _activeSessions = const [];
 
   bool get enabled => supportAddressBookApiUrl.trim().isNotEmpty;
   bool get initialized => _initialized;
@@ -391,6 +400,8 @@ class SupportAddressBookModel with ChangeNotifier {
   SupportTechnician? get technician => _technician;
   List<SupportCustomer> get customers => _customers;
   List<SupportDevice> get devices => _devices;
+  List<SupportSessionSummary> get activeSessions =>
+      List.unmodifiable(_activeSessions);
   bool get clientUpdateChecking => _clientUpdateChecking;
   SupportClientUpdate? get availableClientUpdate {
     final update = _clientUpdate;
@@ -596,6 +607,7 @@ class SupportAddressBookModel with ChangeNotifier {
     _backendReachable = false;
     _customers = const [];
     _devices = const [];
+    _activeSessions = const [];
     _clientUpdate = null;
     _lastClientUpdateCheck = null;
     _retryTimer?.cancel();
@@ -670,11 +682,12 @@ class SupportAddressBookModel with ChangeNotifier {
     }
   }
 
-  Future<void> refresh() async {
+  Future<void> refresh({bool silent = false}) async {
     await ensureInitialized();
-    if (!isAuthenticated) return;
-    _setLoading(true);
-    _setBackendChecking(true);
+    if (!isAuthenticated || _refreshing) return;
+    _refreshing = true;
+    if (!silent) _setLoading(true);
+    if (!silent) _setBackendChecking(true);
     try {
       final response = await http.get(
         _uri('api/v1/changes/'),
@@ -718,8 +731,48 @@ class SupportAddressBookModel with ChangeNotifier {
       notifyListeners();
       rethrow;
     } finally {
-      _setBackendChecking(false);
-      _setLoading(false);
+      _refreshing = false;
+      if (!silent) _setBackendChecking(false);
+      if (!silent) _setLoading(false);
+    }
+  }
+
+  Future<void> refreshActiveSessions() async {
+    await ensureInitialized();
+    if (!isAuthenticated || _activeSessionsRefreshing) return;
+    _activeSessionsRefreshing = true;
+    try {
+      final response = await http
+          .get(
+            _uri('api/v1/sessions/', {'active': 'true'}),
+            headers: _headers(),
+          )
+          .timeout(const Duration(seconds: 10));
+      final body = _requireSuccess(response);
+      final items = body is Map ? body['results'] : body;
+      final sessions = (items as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => SupportSessionSummary.fromJson(
+              Map<String, dynamic>.from(item)))
+          .where((session) => session.active)
+          .toList()
+        ..sort((left, right) {
+          final leftStarted = left.startedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final rightStarted =
+              right.startedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return leftStarted.compareTo(rightStarted);
+        });
+      _activeSessions = sessions;
+      _backendReachable = true;
+      _error = null;
+      notifyListeners();
+    } catch (error) {
+      _backendReachable = false;
+      _error = error.toString();
+      notifyListeners();
+      debugPrint('Support active sessions refresh failed: $error');
+    } finally {
+      _activeSessionsRefreshing = false;
     }
   }
 

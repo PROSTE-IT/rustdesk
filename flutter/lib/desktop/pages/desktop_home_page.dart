@@ -121,6 +121,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         ),
       ),
       buildPluginEntry(),
+      if (!isIncomingOnly && supportAddressBookModel.enabled)
+        const _SupportActiveSessionsPanel(),
     ];
     if (isIncomingOnly) {
       children.addAll([
@@ -146,14 +148,15 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           children: [
             Column(
               children: [
-                SingleChildScrollView(
-                  controller: _leftPaneScrollController,
-                  child: Column(
-                    key: _childKey,
-                    children: children,
+                Expanded(
+                  child: SingleChildScrollView(
+                    controller: _leftPaneScrollController,
+                    child: Column(
+                      key: _childKey,
+                      children: children,
+                    ),
                   ),
                 ),
-                Expanded(child: Container())
               ],
             ),
             if (isOutgoingOnly)
@@ -1014,6 +1017,208 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         ],
       ),
     );
+  }
+}
+
+class _SupportActiveSessionsPanel extends StatefulWidget {
+  const _SupportActiveSessionsPanel();
+
+  @override
+  State<_SupportActiveSessionsPanel> createState() =>
+      _SupportActiveSessionsPanelState();
+}
+
+class _SupportActiveSessionsPanelState
+    extends State<_SupportActiveSessionsPanel> {
+  Timer? _refreshTimer;
+  Timer? _clockTimer;
+  bool _wasAuthenticated = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _wasAuthenticated = supportAddressBookModel.isAuthenticated;
+    supportAddressBookModel.addListener(_handleModelChange);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _refresh(),
+    );
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && supportAddressBookModel.activeSessions.isNotEmpty) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    _clockTimer?.cancel();
+    supportAddressBookModel.removeListener(_handleModelChange);
+    super.dispose();
+  }
+
+  void _handleModelChange() {
+    final authenticated = supportAddressBookModel.isAuthenticated;
+    if (authenticated && !_wasAuthenticated) {
+      unawaited(supportAddressBookModel.refreshActiveSessions());
+    }
+    _wasAuthenticated = authenticated;
+    if (mounted) setState(() {});
+  }
+
+  void _refresh() {
+    if (supportAddressBookModel.isAuthenticated) {
+      unawaited(supportAddressBookModel.refreshActiveSessions());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sessions = supportAddressBookModel.activeSessions;
+    final textColor = Theme.of(context).textTheme.bodyMedium?.color;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 42),
+      padding: const EdgeInsets.only(top: 12),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: Theme.of(context).dividerColor),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.support_agent, size: 17),
+              const SizedBox(width: 7),
+              const Expanded(
+                child: Text(
+                  'Aktywne sesje',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              if (sessions.isNotEmpty)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${sessions.length}',
+                    style: const TextStyle(
+                      color: Colors.green,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 9),
+          if (!supportAddressBookModel.isAuthenticated)
+            Text(
+              'Zaloguj się do RDBK, aby zobaczyć aktywne połączenia.',
+              style: TextStyle(fontSize: 11, color: textColor?.withOpacity(0.6)),
+            )
+          else if (sessions.isEmpty)
+            Text(
+              'Brak aktywnych sesji.',
+              style: TextStyle(fontSize: 11, color: textColor?.withOpacity(0.6)),
+            )
+          else
+            ...sessions.map(_buildSession),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSession(SupportSessionSummary session) {
+    final technician = session.technician?.displayName.isNotEmpty == true
+        ? session.technician!.displayName
+        : session.technician?.username ?? 'Nieznany technik';
+    final target = session.deviceName.isNotEmpty
+        ? session.deviceName
+        : 'ID ${session.rustdeskId}';
+    final targetDetails = session.customerName.isEmpty
+        ? target
+        : '${session.customerName} · $target';
+    final workstation = session.technicianDeviceName.trim();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 7),
+      padding: const EdgeInsets.all(9),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.circle, size: 8, color: Colors.green),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  technician,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Text(
+                _formatDuration(session),
+                style: const TextStyle(fontSize: 10),
+              ),
+            ],
+          ),
+          if (workstation.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              workstation,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontSize: 10,
+                  ),
+            ),
+          ],
+          const SizedBox(height: 3),
+          Text(
+            targetDetails,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontSize: 10,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDuration(SupportSessionSummary session) {
+    var seconds = session.durationSeconds;
+    if (session.startedAt != null) {
+      seconds = DateTime.now()
+          .toUtc()
+          .difference(session.startedAt!.toUtc())
+          .inSeconds;
+    }
+    seconds = seconds < 0 ? 0 : seconds;
+    final hours = seconds ~/ 3600;
+    final minutes = (seconds % 3600) ~/ 60;
+    final remainder = seconds % 60;
+    if (hours > 0) {
+      return '$hours:${minutes.toString().padLeft(2, '0')}:${remainder.toString().padLeft(2, '0')}';
+    }
+    return '$minutes:${remainder.toString().padLeft(2, '0')}';
   }
 }
 
