@@ -1037,9 +1037,8 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
           icon: blockInput.value
               ? Icons.touch_app_outlined
               : Icons.do_not_touch_outlined,
-          label: blockInput.value
-              ? 'Interakcje zablokowane'
-              : 'Blokuj interakcje',
+          label:
+              blockInput.value ? 'Interakcje zablokowane' : 'Blokuj interakcje',
           tooltip: canBlockInteractions
               ? (blockInput.value
                   ? 'Przywróć klawiaturę i mysz użytkownika'
@@ -1581,8 +1580,7 @@ class _SupportSessionStatus extends StatefulWidget {
   const _SupportSessionStatus({required this.ffi});
 
   @override
-  State<_SupportSessionStatus> createState() =>
-      _SupportSessionStatusState();
+  State<_SupportSessionStatus> createState() => _SupportSessionStatusState();
 }
 
 class _SupportSessionStatusState extends State<_SupportSessionStatus> {
@@ -2008,8 +2006,8 @@ class _SupportVoiceCallMenuItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Obx(() {
-      final active = ffi.chatModel.voiceCallStatus.value !=
-          VoiceCallStatus.notStarted;
+      final active =
+          ffi.chatModel.voiceCallStatus.value != VoiceCallStatus.notStarted;
       return MenuButton(
         child: Text(active ? 'Zakończ rozmowę głosową' : 'Rozmowa głosowa'),
         onPressed: active
