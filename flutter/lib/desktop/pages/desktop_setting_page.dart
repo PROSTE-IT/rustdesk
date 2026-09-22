@@ -17,6 +17,7 @@ import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/printer_model.dart';
 import 'package:flutter_hbb/models/server_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
+import 'package:flutter_hbb/models/support_address_book_model.dart';
 import 'package:flutter_hbb/plugin/manager.dart';
 import 'package:flutter_hbb/plugin/widgets/desktop_settings.dart';
 import 'package:get/get.dart';
@@ -2439,6 +2440,10 @@ class _AboutState extends State<_About> {
               SelectionArea(
                   child: Text('${translate('Version')}: $version')
                       .marginSymmetric(vertical: 4.0)),
+              if (supportClientVersion.isNotEmpty)
+                SelectionArea(
+                    child: Text('Wersja PROSTE IT: $supportClientVersion')
+                        .marginSymmetric(vertical: 4.0)),
               SelectionArea(
                   child: Text('${translate('Build Date')}: $buildDate')
                       .marginSymmetric(vertical: 4.0)),
