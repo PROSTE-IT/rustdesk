@@ -22,6 +22,7 @@ on:
       - flutter/lib/desktop/pages/remote_page.dart
       - flutter/lib/desktop/pages/remote_tab_page.dart
       - flutter/lib/desktop/pages/desktop_home_page.dart
+      - flutter/lib/desktop/pages/desktop_setting_page.dart
       - flutter/lib/desktop/widgets/remote_toolbar.dart
       - flutter/lib/models/model.dart
       - flutter/lib/models/peer_tab_model.dart
@@ -60,6 +61,7 @@ jobs:
             lib/common/widgets/toolbar.dart
             lib/consts.dart
             lib/desktop/pages/desktop_home_page.dart
+            lib/desktop/pages/desktop_setting_page.dart
             lib/desktop/pages/remote_tab_page.dart
             lib/desktop/widgets/remote_toolbar.dart
             lib/models/support_address_book_model.dart
@@ -91,6 +93,7 @@ jobs:
         run: |
           dart analyze lib/common/widgets/support_address_book.dart
           dart analyze lib/desktop/pages/desktop_home_page.dart
+          dart analyze lib/desktop/pages/desktop_setting_page.dart
 
       - name: Analyze integration hooks
         working-directory: flutter
