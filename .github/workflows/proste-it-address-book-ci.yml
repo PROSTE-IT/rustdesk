@@ -17,8 +17,10 @@ on:
       - flutter/lib/common/widgets/peer_card.dart
       - flutter/lib/common/widgets/peer_tab_page.dart
       - flutter/lib/common/widgets/peers_view.dart
+      - flutter/lib/common/widgets/toolbar.dart
       - flutter/lib/desktop/pages/remote_page.dart
       - flutter/lib/desktop/pages/desktop_home_page.dart
+      - flutter/lib/desktop/widgets/remote_toolbar.dart
       - flutter/lib/models/model.dart
       - flutter/lib/models/peer_tab_model.dart
       - flutter/lib/models/support_address_book_model.dart
@@ -52,8 +54,11 @@ jobs:
         run: |
           files=(
             lib/common/widgets/support_address_book.dart
+            lib/common/widgets/toolbar.dart
             lib/desktop/pages/desktop_home_page.dart
+            lib/desktop/widgets/remote_toolbar.dart
             lib/models/support_address_book_model.dart
+            lib/models/model.dart
             lib/models/support_secure_storage.dart
             lib/models/support_secure_storage_io.dart
             lib/models/support_secure_storage_stub.dart
@@ -89,7 +94,10 @@ jobs:
             lib/common.dart \
             lib/common/widgets/peer_tab_page.dart \
             lib/common/widgets/peers_view.dart \
+            lib/common/widgets/toolbar.dart \
             lib/desktop/pages/remote_page.dart \
+            lib/desktop/widgets/remote_toolbar.dart \
+            lib/models/model.dart \
             lib/models/peer_tab_model.dart; do
             dart analyze "$source"
           done

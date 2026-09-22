@@ -122,6 +122,7 @@ class FfiModel with ChangeNotifier {
   bool? _secure;
   bool? _direct;
   bool _connectionReady = false;
+  DateTime? _connectionReadyAt;
   bool _touchMode = false;
   late VirtualMouseMode virtualMouseMode;
   Timer? _timer;
@@ -159,6 +160,8 @@ class FfiModel with ChangeNotifier {
   bool? get direct => _direct;
 
   bool get connectionReady => _connectionReady;
+
+  DateTime? get connectionReadyAt => _connectionReadyAt;
 
   PeerInfo get pi => _pi;
 
@@ -259,6 +262,7 @@ class FfiModel with ChangeNotifier {
     _secure = null;
     _direct = null;
     _connectionReady = false;
+    _connectionReadyAt = null;
     _inputBlocked = false;
     _timer?.cancel();
     _timer = null;
@@ -283,6 +287,12 @@ class FfiModel with ChangeNotifier {
     } catch (e) {
       //
     }
+  }
+
+  void _markConnectionReady() {
+    _connectionReadyAt ??= DateTime.now();
+    _connectionReady = true;
+    notifyListeners();
   }
 
   Widget? getConnectionImageText() {
@@ -324,7 +334,7 @@ class FfiModel with ChangeNotifier {
     }, sessionId, peerId);
     updatePrivacyMode(data.updatePrivacyMode, sessionId, peerId);
     setConnectionType(peerId, data.secure, data.direct, data.streamType);
-    _connectionReady = true;
+    _markConnectionReady();
     await handlePeerInfo(data.peerInfo, peerId, true);
     for (final element in data.cursorDataList) {
       updateLastCursorId(element);
@@ -353,9 +363,9 @@ class FfiModel with ChangeNotifier {
       } else if (name == 'sync_platform_additions') {
         handlePlatformAdditions(evt, sessionId, peerId);
       } else if (name == 'connection_ready') {
-        _connectionReady = true;
         setConnectionType(peerId, evt['secure'] == 'true',
             evt['direct'] == 'true', evt['stream_type'] ?? '');
+        _markConnectionReady();
         resetRestartReconnectState();
       } else if (name == 'switch_display') {
         // switch display is kept for backward compatibility

@@ -1,5 +1,6 @@
-import 'dart:convert';
 import 'dart:async';
+import 'dart:convert';
+import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -919,13 +920,52 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   }
 
   Widget _buildSupportOverlayToolbar(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildSupportToolbarMaterial(context, embedded: false),
-        _buildDraggableCollapse(context, _ToolbarEdge.top, true),
-      ],
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.sizeOf(context).width - 24,
+            ),
+            child: _buildSupportToolbarMaterial(context, embedded: false),
+          ),
+          _buildDraggableCollapse(context, _ToolbarEdge.top, true),
+        ],
+      ),
     );
+  }
+
+  Future<void> _sendSupportClipboardKeystrokes() async {
+    Future<void> send() async {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text;
+      if (text != null && text.isNotEmpty) {
+        bind.sessionInputString(
+          sessionId: widget.ffi.sessionId,
+          value: text,
+        );
+      }
+    }
+
+    final allowWaylandKeyboard =
+        mainGetPeerBoolOptionSync(widget.id, kPeerOptionAllowWaylandKeyboard);
+    if (shouldShowWaylandKeyboardPrompt(
+      connectionId: widget.ffi.sessionId.toString(),
+      isWaylandPeer: pi.isWayland,
+      allowWaylandKeyboardRemembered: allowWaylandKeyboard,
+    )) {
+      widget.ffi.inputModel.keyboardInputAllowed = false;
+      showWaylandKeyboardInputWarningDialog(
+        id: widget.id,
+        connectionId: widget.ffi.sessionId.toString(),
+        ffi: widget.ffi,
+        onEnable: send,
+      );
+      return;
+    }
+    await send();
   }
 
   Widget _buildSupportToolbarMaterial(BuildContext context,
@@ -945,22 +985,34 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
         ?.resolve(MaterialState.values.toSet());
 
     final items = <Widget>[
+      _SupportSessionStatus(ffi: widget.ffi),
+      const _SupportToolbarDivider(),
       _SupportToolbarActionButton(
         icon: Icons.keyboard_command_key,
         label: 'Ctrl+Alt+Del',
         tooltip: canSendCad
-            ? 'Insert Ctrl + Alt + Del'
-            : 'Ctrl+Alt+Del is not available for this connection',
+            ? 'Wyślij Ctrl + Alt + Delete'
+            : 'Ctrl+Alt+Del nie jest dostępne w tej sesji',
         onPressed: canSendCad
             ? () => bind.sessionCtrlAltDel(sessionId: widget.ffi.sessionId)
             : null,
       ),
       _SupportToolbarActionButton(
+        icon: Icons.lock_outline,
+        label: 'Blokuj ekran',
+        tooltip: canLock
+            ? 'Natychmiast zablokuj ekran zdalnego komputera'
+            : 'Blokowanie ekranu nie jest dostępne w tej sesji',
+        onPressed: canLock
+            ? () => bind.sessionLockScreen(sessionId: widget.ffi.sessionId)
+            : null,
+      ),
+      _SupportToolbarActionButton(
         icon: Icons.folder_copy_outlined,
-        label: translate('Transfer file'),
+        label: 'Pliki',
         tooltip: canTransferFiles
-            ? 'Transfer file'
-            : 'File transfer is not available for this connection',
+            ? 'Otwórz transfer plików'
+            : 'Transfer plików nie jest dostępny w tej sesji',
         onPressed: canTransferFiles
             ? () {
                 final connToken =
@@ -971,17 +1023,28 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
             : null,
       ),
       _SupportTextChatButton(id: widget.id, ffi: widget.ffi),
+      _SupportToolbarActionButton(
+        icon: Icons.content_paste_go_outlined,
+        label: 'Wklej tekst',
+        tooltip: 'Wyślij tekst ze schowka jako naciśnięcia klawiszy',
+        onPressed: !ffiModel.viewOnly && ffiModel.keyboard
+            ? _sendSupportClipboardKeystrokes
+            : null,
+      ),
       Obx(() {
         final blockInput = BlockInputState.find(widget.id);
         return _SupportToolbarActionButton(
           icon: blockInput.value
               ? Icons.touch_app_outlined
               : Icons.do_not_touch_outlined,
-          label: translate(
-              blockInput.value ? 'Unblock user input' : 'Block user input'),
+          label: blockInput.value
+              ? 'Interakcje zablokowane'
+              : 'Blokuj interakcje',
           tooltip: canBlockInteractions
-              ? (blockInput.value ? 'Unblock user input' : 'Block user input')
-              : 'Blocking interactions is not available for this connection',
+              ? (blockInput.value
+                  ? 'Przywróć klawiaturę i mysz użytkownika'
+                  : 'Zablokuj klawiaturę i mysz użytkownika')
+              : 'Blokowanie interakcji nie jest dostępne w tej sesji',
           active: blockInput.value,
           onPressed: canBlockInteractions
               ? () {
@@ -993,16 +1056,6 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
               : null,
         );
       }),
-      _SupportToolbarActionButton(
-        icon: Icons.lock_outline,
-        label: translate('Lock screen'),
-        tooltip: canLock
-            ? 'Insert Lock'
-            : 'Lock screen is not available for this connection',
-        onPressed: canLock
-            ? () => bind.sessionLockScreen(sessionId: widget.ffi.sessionId)
-            : null,
-      ),
       _SupportTrackingButton(id: widget.id, ffi: widget.ffi),
       const _SupportToolbarDivider(),
       _SupportMonitorButtons(
@@ -1011,17 +1064,30 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
         setRemoteState: widget.setRemoteState,
       ),
       const _SupportToolbarDivider(),
-      _DisplayMenu(
+      _SupportToolbarActionButton(
+        icon: Icons.refresh,
+        label: '',
+        tooltip: 'Odśwież obraz',
+        onPressed: pi.version.isNotEmpty
+            ? () => sessionRefreshVideo(widget.ffi.sessionId, pi)
+            : null,
+      ),
+      Obx(() => _SupportToolbarActionButton(
+            icon: stateGlobal.fullscreen.isTrue
+                ? Icons.fullscreen_exit
+                : Icons.fullscreen,
+            label: '',
+            tooltip: stateGlobal.fullscreen.isTrue
+                ? 'Tryb okienkowy'
+                : 'Pełny ekran',
+            onPressed: () => _setFullscreen(!stateGlobal.fullscreen.value),
+          )),
+      _SupportMoreMenu(
         id: widget.id,
         ffi: widget.ffi,
         state: widget.state,
         setFullscreen: _setFullscreen,
-        excludeFollowRemoteWindow: true,
       ),
-      _KeyboardMenu(id: widget.id, ffi: widget.ffi),
-      if (!isWeb) _VoiceCallMenu(id: widget.id, ffi: widget.ffi),
-      if (!isWeb) const _RecordMenu(),
-      _SupportMoreMenu(id: widget.id, ffi: widget.ffi),
       _CloseMenu(id: widget.id, ffi: widget.ffi),
     ];
 
@@ -1044,6 +1110,13 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       elevation: embedded ? 0 : _ToolbarTheme.elevation,
       shadowColor: MyTheme.color(context).shadow,
       color: background,
+      shape: embedded
+          ? null
+          : RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(9),
+              side: BorderSide(color: _ToolbarTheme.borderColor(context)),
+            ),
+      clipBehavior: embedded ? Clip.none : Clip.antiAlias,
       child: SizedBox(
         height: kSupportRemoteToolbarHeight,
         child: embedded
@@ -1502,6 +1575,118 @@ class _SupportToolbarDivider extends StatelessWidget {
   }
 }
 
+class _SupportSessionStatus extends StatefulWidget {
+  final FFI ffi;
+
+  const _SupportSessionStatus({required this.ffi});
+
+  @override
+  State<_SupportSessionStatus> createState() =>
+      _SupportSessionStatusState();
+}
+
+class _SupportSessionStatusState extends State<_SupportSessionStatus> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String _elapsed() {
+    final startedAt = widget.ffi.ffiModel.connectionReadyAt;
+    if (startedAt == null) return '00:00';
+    final elapsed = DateTime.now().difference(startedAt);
+    final hours = elapsed.inHours;
+    final minutes = elapsed.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = elapsed.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return hours > 0
+        ? '${hours.toString().padLeft(2, '0')}:$minutes:$seconds'
+        : '$minutes:$seconds';
+  }
+
+  ({Color color, String label}) _backendStatus() {
+    switch (supportAddressBookModel.backendState) {
+      case SupportBackendConnectionState.connected:
+        return (color: const Color(0xff3fc67a), label: 'RDBK');
+      case SupportBackendConnectionState.checking:
+        return (color: const Color(0xfff2ad3b), label: 'RDBK');
+      case SupportBackendConnectionState.offline:
+        return (color: const Color(0xffff5b60), label: 'RDBK offline');
+      case SupportBackendConnectionState.signedOut:
+        return (color: Colors.grey, label: 'RDBK wylogowany');
+      case SupportBackendConnectionState.disabled:
+        return (color: Colors.grey, label: 'RDBK wyłączony');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        widget.ffi.qualityMonitorModel,
+        supportAddressBookModel,
+      ]),
+      builder: (context, _) {
+        final direct = widget.ffi.ffiModel.direct;
+        final route = direct == null
+            ? 'Łączenie'
+            : direct
+                ? 'Direct'
+                : 'Relay';
+        final delay = widget.ffi.qualityMonitorModel.data.delay;
+        final backend = _backendStatus();
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.schedule, size: 16, color: Colors.white70),
+              const SizedBox(width: 5),
+              Text(
+                _elapsed(),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(width: 9),
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: backend.color,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 5),
+              Text(
+                backend.label,
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              const SizedBox(width: 9),
+              Text(
+                '$route · ${delay == null ? '—' : '$delay ms'}',
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _SupportToolbarActionButton extends StatefulWidget {
   final IconData icon;
   final String label;
@@ -1531,8 +1716,9 @@ class _SupportToolbarActionButtonState
   Widget build(BuildContext context) {
     final enabled = widget.onPressed != null;
     final foreground = enabled ? Colors.white : Colors.white38;
+    final iconColor = enabled ? _ToolbarTheme.blueColor : Colors.white38;
     final background = widget.active
-        ? _ToolbarTheme.blueColor
+        ? _ToolbarTheme.blueColor.withOpacity(0.18)
         : _hover && enabled
             ? _ToolbarTheme.hoverInactiveColor
             : Colors.transparent;
@@ -1558,17 +1744,19 @@ class _SupportToolbarActionButtonState
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(widget.icon, size: 18, color: foreground),
-                const SizedBox(width: 6),
-                Text(
-                  widget.label,
-                  style: TextStyle(
-                    color: foreground,
-                    fontSize: 13,
-                    fontWeight:
-                        widget.active ? FontWeight.w600 : FontWeight.w500,
+                Icon(widget.icon, size: 18, color: iconColor),
+                if (widget.label.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    widget.label,
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: 13,
+                      fontWeight:
+                          widget.active ? FontWeight.w600 : FontWeight.w500,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -1609,8 +1797,8 @@ class _SupportTextChatButtonState extends State<_SupportTextChatButton> {
     return _SupportToolbarActionButton(
       key: _buttonKey,
       icon: Icons.chat_bubble_outline,
-      label: translate('Text chat'),
-      tooltip: 'Text chat',
+      label: 'Czat',
+      tooltip: 'Otwórz czat tekstowy',
       onPressed: _openChat,
     );
   }
@@ -1632,25 +1820,25 @@ class _SupportTrackingButtonState extends State<_SupportTrackingButton> {
 
   String? _unavailableReason(PeerInfo pi) {
     if (pi.platform == kPeerPlatformAndroid) {
-      return 'Tracking is not available on Android';
+      return 'Śledzenie nie jest dostępne na Androidzie';
     }
     if (widget.ffi.canvasModel.cursorEmbedded) {
-      return 'Tracking is not available with an embedded cursor';
+      return 'Śledzenie nie jest dostępne z osadzonym kursorem';
     }
     if (pi.isWayland) {
-      return 'Tracking is not available on Wayland';
+      return 'Śledzenie nie jest dostępne w sesji Wayland';
     }
     if (versionCmp(pi.version, '1.2.4') < 0) {
-      return 'Tracking requires RustDesk 1.2.4 or newer';
+      return 'Śledzenie wymaga RustDesk 1.2.4 lub nowszego';
     }
     if (pi.displays.length <= 1) {
-      return 'Tracking requires at least two displays';
+      return 'Śledzenie wymaga co najmniej dwóch ekranów';
     }
     if (CurrentDisplayState.find(widget.id).value == kAllDisplayValue) {
-      return 'Select one display to enable tracking';
+      return 'Wybierz jeden ekran, aby włączyć śledzenie';
     }
     if (bind.sessionIsMultiUiSession(sessionId: widget.ffi.sessionId)) {
-      return 'Tracking is unavailable when displays use separate windows';
+      return 'Śledzenie jest niedostępne, gdy ekrany używają osobnych okien';
     }
     return null;
   }
@@ -1677,9 +1865,11 @@ class _SupportTrackingButtonState extends State<_SupportTrackingButton> {
           sessionId: widget.ffi.sessionId, arg: _sessionOption);
       return _SupportToolbarActionButton(
         icon: Icons.track_changes,
-        label: translate('Tracking'),
+        label: 'Śledzenie',
         tooltip: reason ??
-            (active ? 'Disable tracking' : 'Follow remote window focus'),
+            (active
+                ? 'Wyłącz śledzenie aktywnego okna'
+                : 'Śledź aktywne okno na zdalnym komputerze'),
         active: active,
         onPressed: reason == null && !_busy ? _toggle : null,
       );
@@ -1722,8 +1912,9 @@ class _SupportMonitorButtons extends StatelessWidget {
         buttons.add(_SupportToolbarActionButton(
           icon: Icons.monitor_outlined,
           label: '${i + 1}',
-          tooltip:
-              canSwitch ? 'Display ${i + 1}' : 'Display switching disabled',
+          tooltip: canSwitch
+              ? 'Ekran ${i + 1}'
+              : 'Przełączanie ekranów jest wyłączone',
           active: current == i,
           onPressed: canSwitch ? () => _select(i) : null,
         ));
@@ -1732,7 +1923,9 @@ class _SupportMonitorButtons extends StatelessWidget {
         buttons.add(_SupportToolbarActionButton(
           icon: Icons.grid_view_outlined,
           label: 'A',
-          tooltip: canSwitch ? 'All displays' : 'Display switching disabled',
+          tooltip: canSwitch
+              ? 'Wszystkie ekrany'
+              : 'Przełączanie ekranów jest wyłączone',
           active: current == kAllDisplayValue,
           onPressed: canSwitch ? () => _select(kAllDisplayValue) : null,
         ));
@@ -1745,8 +1938,15 @@ class _SupportMonitorButtons extends StatelessWidget {
 class _SupportMoreMenu extends StatelessWidget {
   final String id;
   final FFI ffi;
+  final ToolbarState state;
+  final Function(bool) setFullscreen;
 
-  const _SupportMoreMenu({required this.id, required this.ffi});
+  const _SupportMoreMenu({
+    required this.id,
+    required this.ffi,
+    required this.state,
+    required this.setFullscreen,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1768,20 +1968,79 @@ class _SupportMoreMenu extends StatelessWidget {
       color: _ToolbarTheme.inactiveColor,
       hoverColor: _ToolbarTheme.hoverInactiveColor,
       ffi: ffi,
-      menuChildrenGetter: (_) => toolbarControls(
-        context,
-        id,
-        ffi,
-        excludeSupportPrimaryActions: true,
-      ).map((entry) {
-        if (entry.divider) return const Divider();
-        return MenuButton(
-          child: entry.child,
-          onPressed: entry.onPressed,
+      menuChildrenGetter: (_) => [
+        _DisplayMenu(
+          id: id,
           ffi: ffi,
-          trailingIcon: entry.trailingIcon,
+          state: state,
+          setFullscreen: setFullscreen,
+          excludeFollowRemoteWindow: true,
+          asTextMenu: true,
+        ),
+        _KeyboardMenu(id: id, ffi: ffi, asTextMenu: true),
+        if (!isWeb) _SupportVoiceCallMenuItem(ffi: ffi),
+        if (!isWeb) _SupportRecordMenuItem(ffi: ffi),
+        const Divider(),
+        ...toolbarControls(
+          context,
+          id,
+          ffi,
+          excludeSupportPrimaryActions: true,
+        ).map((entry) {
+          if (entry.divider) return const Divider();
+          return MenuButton(
+            child: entry.child,
+            onPressed: entry.onPressed,
+            ffi: ffi,
+            trailingIcon: entry.trailingIcon,
+          );
+        }),
+      ],
+    );
+  }
+}
+
+class _SupportVoiceCallMenuItem extends StatelessWidget {
+  final FFI ffi;
+
+  const _SupportVoiceCallMenuItem({required this.ffi});
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      final active = ffi.chatModel.voiceCallStatus.value !=
+          VoiceCallStatus.notStarted;
+      return MenuButton(
+        child: Text(active ? 'Zakończ rozmowę głosową' : 'Rozmowa głosowa'),
+        onPressed: active
+            ? () => bind.sessionCloseVoiceCall(sessionId: ffi.sessionId)
+            : () => bind.sessionRequestVoiceCall(sessionId: ffi.sessionId),
+        ffi: ffi,
+      );
+    });
+  }
+}
+
+class _SupportRecordMenuItem extends StatelessWidget {
+  final FFI ffi;
+
+  const _SupportRecordMenuItem({required this.ffi});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: ffi.recordingModel,
+      builder: (context, _) {
+        final recording = ffi.recordingModel.start;
+        final visible =
+            recording || ffi.ffiModel.permissions['recording'] != false;
+        if (!visible) return const Offstage();
+        return MenuButton(
+          child: Text(recording ? 'Zatrzymaj nagrywanie' : 'Nagrywanie'),
+          onPressed: () => ffi.recordingModel.toggle(),
+          ffi: ffi,
         );
-      }).toList(),
+      },
     );
   }
 }
@@ -1935,13 +2194,15 @@ class _DisplayMenu extends StatefulWidget {
   final Function(bool) setFullscreen;
   final Widget pluginItem;
   final bool excludeFollowRemoteWindow;
+  final bool asTextMenu;
   _DisplayMenu(
       {Key? key,
       required this.id,
       required this.ffi,
       required this.state,
       required this.setFullscreen,
-      this.excludeFollowRemoteWindow = false})
+      this.excludeFollowRemoteWindow = false,
+      this.asTextMenu = false})
       : pluginItem = LocationItem.createLocationItem(
           id,
           ffi,
@@ -1987,11 +2248,11 @@ class _DisplayMenuState extends State<_DisplayMenu> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     _screenAdjustor.updateScreen();
-    menuChildrenGetter(_IconSubmenuButtonState state) {
+    menuChildren(VoidCallback refreshMenu) {
       final menuChildren = <Widget>[
         _screenAdjustor.adjustWindow(context),
         viewStyle(customPercent: _customPercent),
-        scrollStyle(state, colorScheme),
+        scrollStyle(refreshMenu, colorScheme),
         imageQuality(),
         codec(),
         if (ffi.connType == ConnType.defaultConn)
@@ -2045,13 +2306,29 @@ class _DisplayMenuState extends State<_DisplayMenu> {
       return menuChildren;
     }
 
+    if (widget.asTextMenu) {
+      return _SubmenuButton(
+        ffi: widget.ffi,
+        child: const Row(
+          children: [
+            Icon(Icons.tune, size: 18),
+            SizedBox(width: 8),
+            Text('Obraz i jakość'),
+          ],
+        ),
+        menuChildren: menuChildren(() {
+          if (mounted) setState(() {});
+        }),
+      );
+    }
+
     return _IconSubmenuButton(
       tooltip: 'Display Settings',
       svg: "assets/display.svg",
       ffi: widget.ffi,
       color: _ToolbarTheme.blueColor,
       hoverColor: _ToolbarTheme.hoverBlueColor,
-      menuChildrenGetter: menuChildrenGetter,
+      menuChildrenGetter: (state) => menuChildren(() => state.setState(() {})),
     );
   }
 
@@ -2115,7 +2392,7 @@ class _DisplayMenuState extends State<_DisplayMenu> {
     });
   }
 
-  scrollStyle(_IconSubmenuButtonState state, ColorScheme colorScheme) {
+  scrollStyle(VoidCallback refreshMenu, ColorScheme colorScheme) {
     return futureBuilder(future: () async {
       final viewStyle =
           await bind.sessionGetViewStyle(sessionId: ffi.sessionId) ?? '';
@@ -2141,7 +2418,7 @@ class _DisplayMenuState extends State<_DisplayMenu> {
         await bind.sessionSetScrollStyle(
             sessionId: ffi.sessionId, value: value);
         widget.ffi.canvasModel.updateScrollStyle();
-        state.setState(() {});
+        refreshMenu();
       }
 
       onChangeEdgeScrollEdgeThickness(double? value) async {
@@ -2150,7 +2427,7 @@ class _DisplayMenuState extends State<_DisplayMenu> {
         await bind.sessionSetEdgeScrollEdgeThickness(
             sessionId: ffi.sessionId, value: newThickness);
         widget.ffi.canvasModel.updateEdgeScrollEdgeThickness(newThickness);
-        state.setState(() {});
+        refreshMenu();
       }
 
       return Obx(() => Column(children: [
@@ -2770,10 +3047,12 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
 class _KeyboardMenu extends StatelessWidget {
   final String id;
   final FFI ffi;
+  final bool asTextMenu;
   _KeyboardMenu({
     Key? key,
     required this.id,
     required this.ffi,
+    this.asTextMenu = false,
   }) : super(key: key);
 
   PeerInfo get pi => ffi.ffiModel.pi;
@@ -2796,26 +3075,42 @@ class _KeyboardMenu extends StatelessWidget {
       return toggles;
     }
 
+    final menuChildren = <Widget>[
+      keyboardMode(),
+      localKeyboardType(),
+      inputSource(),
+      Divider(),
+      viewMode(),
+      if ([kPeerPlatformWindows, kPeerPlatformMacOS, kPeerPlatformLinux]
+          .contains(pi.platform))
+        showMyCursor(),
+      Divider(),
+      ...toolbarToggles(),
+      ...mouseSpeed(),
+      ...mobileActions(),
+    ];
+
+    if (asTextMenu) {
+      return _SubmenuButton(
+        ffi: ffi,
+        child: const Row(
+          children: [
+            Icon(Icons.keyboard_alt_outlined, size: 18),
+            SizedBox(width: 8),
+            Text('Klawiatura i mysz'),
+          ],
+        ),
+        menuChildren: menuChildren,
+      );
+    }
+
     return _IconSubmenuButton(
         tooltip: 'Keyboard Settings',
         svg: "assets/keyboard_mouse.svg",
         ffi: ffi,
         color: _ToolbarTheme.blueColor,
         hoverColor: _ToolbarTheme.hoverBlueColor,
-        menuChildrenGetter: (_) => [
-              keyboardMode(),
-              localKeyboardType(),
-              inputSource(),
-              Divider(),
-              viewMode(),
-              if ([kPeerPlatformWindows, kPeerPlatformMacOS, kPeerPlatformLinux]
-                  .contains(pi.platform))
-                showMyCursor(),
-              Divider(),
-              ...toolbarToggles(),
-              ...mouseSpeed(),
-              ...mobileActions(),
-            ]);
+        menuChildrenGetter: (_) => menuChildren);
   }
 
   mouseSpeed() {

@@ -380,7 +380,8 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi,
     );
   }
   // paste
-  if (isDefaultConn &&
+  if (!excludeSupportPrimaryActions &&
+      isDefaultConn &&
       pi.platform != kPeerPlatformAndroid &&
       perms['keyboard'] != false) {
     v.add(TTextMenu(
@@ -583,7 +584,7 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi,
             showConfirmSwitchSidesDialog(sessionId, id, ffi.dialogManager)));
   }
   // refresh
-  if (pi.version.isNotEmpty) {
+  if (!excludeSupportPrimaryActions && pi.version.isNotEmpty) {
     v.add(TTextMenu(
       child: Text(translate('Refresh')),
       onPressed: () => sessionRefreshVideo(sessionId, pi),
