@@ -198,10 +198,7 @@ fn download_managed_msi(download_url: String) -> ResultType<(PathBuf, String)> {
 }
 
 #[cfg(all(target_os = "windows", feature = "flutter"))]
-fn spawn_managed_msi(
-    installer: &std::path::Path,
-    silent: bool,
-) -> ResultType<std::process::Child> {
+fn spawn_managed_msi(installer: &std::path::Path, silent: bool) -> ResultType<std::process::Child> {
     let system_root = std::env::var_os("SystemRoot")
         .ok_or_else(|| hbb_common::anyhow::anyhow!("Brak katalogu systemowego Windows."))?;
     let msiexec = PathBuf::from(system_root)
