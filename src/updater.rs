@@ -62,9 +62,7 @@ pub fn install_support_update(download_url: String) -> ResultType<()> {
     if configured_base.is_empty() {
         bail!("W tym buildzie nie skonfigurowano serwera aktualizacji.");
     }
-    let update_channel = option_env!("RDBK_UPDATE_CHANNEL")
-        .unwrap_or("")
-        .trim();
+    let update_channel = option_env!("RDBK_UPDATE_CHANNEL").unwrap_or("").trim();
     if !matches!(update_channel, "windows_support" | "windows_helpdesk") {
         bail!("W tym buildzie nie skonfigurowano kanału aktualizacji.");
     }
@@ -91,7 +89,10 @@ pub fn install_support_update(download_url: String) -> ResultType<()> {
         .build()?;
     let mut response = client.get(candidate).send()?;
     if !response.status().is_success() {
-        bail!("Pobranie aktualizacji nie powiodło się: {}", response.status());
+        bail!(
+            "Pobranie aktualizacji nie powiodło się: {}",
+            response.status()
+        );
     }
     if let Some(length) = response.content_length() {
         if length == 0 || length > SUPPORT_UPDATE_MAX_BYTES {
@@ -138,9 +139,9 @@ pub fn install_support_update(download_url: String) -> ResultType<()> {
     let mut child = match std::process::Command::new(msiexec)
         .args([
             "/i",
-            installer.to_str().ok_or_else(|| {
-                hbb_common::anyhow::anyhow!("Nieprawidłowa ścieżka instalatora.")
-            })?,
+            installer
+                .to_str()
+                .ok_or_else(|| hbb_common::anyhow::anyhow!("Nieprawidłowa ścieżka instalatora."))?,
             "/qn",
             "LAUNCH_TRAY_APP=N",
             "REBOOT=ReallySuppress",
