@@ -166,8 +166,7 @@ class SupportTechnician {
         id: json['id']?.toString() ?? '',
         username: json['username']?.toString() ?? '',
         displayName: json['display_name']?.toString() ?? '',
-        canCloseSupportSessions:
-            json['can_close_support_sessions'] == true,
+        canCloseSupportSessions: json['can_close_support_sessions'] == true,
       );
 }
 
