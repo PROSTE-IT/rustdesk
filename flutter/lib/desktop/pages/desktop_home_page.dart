@@ -1251,8 +1251,7 @@ class _SupportActiveSessionsPanelState
   Widget _buildSession(SupportSessionSummary session) {
     final activityColor =
         session.activityActive ? Colors.green : Colors.redAccent;
-    final activityLabel =
-        session.activityActive ? 'Aktywny' : 'Nieaktywny';
+    final activityLabel = session.activityActive ? 'Aktywny' : 'Nieaktywny';
     final technician = session.technician?.displayName.isNotEmpty == true
         ? session.technician!.displayName
         : session.technician?.username ?? 'Nieznany technik';

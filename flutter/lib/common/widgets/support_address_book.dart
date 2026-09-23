@@ -8,6 +8,7 @@ import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/support_address_book_model.dart';
 
 enum _SupportDeviceFilter { all, online, offline, servers, computers }
+
 enum _SupportDeviceView { list, tiles }
 
 const _supportDeviceViewOption = 'proste-it-support-device-view';
@@ -535,8 +536,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                 )
               : GridView.builder(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-                  gridDelegate:
-                      const SliverGridDelegateWithMaxCrossAxisExtent(
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                     maxCrossAxisExtent: 360,
                     mainAxisExtent: 244,
                     crossAxisSpacing: 10,
