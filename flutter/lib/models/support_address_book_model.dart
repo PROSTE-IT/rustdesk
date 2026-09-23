@@ -152,11 +152,13 @@ class SupportTechnician {
   final String id;
   final String username;
   final String displayName;
+  final bool canCloseSupportSessions;
 
   const SupportTechnician({
     required this.id,
     required this.username,
     required this.displayName,
+    required this.canCloseSupportSessions,
   });
 
   factory SupportTechnician.fromJson(Map<String, dynamic> json) =>
@@ -164,6 +166,8 @@ class SupportTechnician {
         id: json['id']?.toString() ?? '',
         username: json['username']?.toString() ?? '',
         displayName: json['display_name']?.toString() ?? '',
+        canCloseSupportSessions:
+            json['can_close_support_sessions'] == true,
       );
 }
 
@@ -364,6 +368,7 @@ class SupportAddressBookModel with ChangeNotifier {
   final List<Map<String, dynamic>> _eventQueue = [];
   final List<SupportPostSessionPrompt> _postSessionPrompts = [];
   final Map<String, String> _sessionSyncFailures = {};
+  final Set<String> _administratorClosedSessionIds = {};
   Future<void> _queueWrite = Future.value();
   Future<void> _postSessionPromptWrite = Future.value();
   Future<void> _sessionSyncFailuresWrite = Future.value();
@@ -409,10 +414,15 @@ class SupportAddressBookModel with ChangeNotifier {
 
   String? get error => _error;
   SupportTechnician? get technician => _technician;
+  bool get canCloseSupportSessions =>
+      _technician?.canCloseSupportSessions == true;
   List<SupportCustomer> get customers => _customers;
   List<SupportDevice> get devices => _devices;
   List<SupportSessionSummary> get activeSessions =>
       List.unmodifiable(_activeSessions);
+
+  bool consumeAdministratorClosedSession(String sessionId) =>
+      _administratorClosedSessionIds.remove(sessionId);
 
   List<SupportSessionSummary> otherActiveSessionsFor(String rustdeskId) {
     final normalizedId = rustdeskId.replaceAll(RegExp(r'\s+'), '');
@@ -649,6 +659,7 @@ class SupportAddressBookModel with ChangeNotifier {
     _customers = const [];
     _devices = const [];
     _activeSessions = const [];
+    _administratorClosedSessionIds.clear();
     _lastActiveSessionsRefresh = null;
     _clientUpdate = null;
     _lastClientUpdateCheck = null;
@@ -846,6 +857,29 @@ class SupportAddressBookModel with ChangeNotifier {
     } finally {
       _activeSessionsRefreshing = false;
     }
+  }
+
+  Future<void> forceCloseSupportSession(String sessionId) async {
+    await ensureInitialized();
+    if (!isAuthenticated || !canCloseSupportSessions) {
+      throw const SupportAddressBookException(
+        'Nie masz uprawnień do zamykania sesji techników.',
+      );
+    }
+    final response = await http
+        .post(
+          _uri('api/v1/sessions/$sessionId/force-close/'),
+          headers: _headers(),
+          body: '{}',
+        )
+        .timeout(const Duration(seconds: 10));
+    _requireSuccess(response);
+    _activeSessions = _activeSessions
+        .where((session) => session.id != sessionId)
+        .toList(growable: false);
+    _backendReachable = true;
+    _error = null;
+    notifyListeners();
   }
 
   List<SupportDevice> devicesFor(String customerId) =>
@@ -1234,6 +1268,17 @@ class SupportAddressBookModel with ChangeNotifier {
         _backendReachable = true;
         if (response.statusCode >= 200 && response.statusCode < 300) {
           _error = null;
+          if (kind == 'heartbeat') {
+            final body = _decode(response);
+            final session = body is Map ? body['session'] : null;
+            if (body is Map &&
+                body['closed'] == true &&
+                session is Map &&
+                session['end_reason'] == 'administrator' &&
+                sessionId.isNotEmpty) {
+              _administratorClosedSessionIds.add(sessionId);
+            }
+          }
           await _removeProcessedEvent(event);
           continue;
         }

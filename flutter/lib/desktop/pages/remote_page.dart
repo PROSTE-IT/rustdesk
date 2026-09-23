@@ -98,6 +98,7 @@ class _RemotePageState extends State<RemotePage>
   bool _supportDisposing = false;
   bool _supportSessionEnded = false;
   bool _supportClosePromptHandled = false;
+  bool _supportAdministratorCloseScheduled = false;
   bool _supportServerProfileApplying = false;
   bool _supportServerImageProfileApplied = false;
   bool _supportServerResolutionApplied = false;
@@ -188,6 +189,7 @@ class _RemotePageState extends State<RemotePage>
   @override
   void initState() {
     super.initState();
+    supportAddressBookModel.addListener(_handleSupportSessionControlChange);
     _ffi = FFI(widget.sessionId);
     Get.put<FFI>(_ffi, tag: widget.id);
     _ffi.imageModel.addCallbackOnFirstImage((String peerId) {
@@ -413,6 +415,29 @@ class _RemotePageState extends State<RemotePage>
       _supportSessionEnded = false;
       rethrow;
     }
+  }
+
+  void _handleSupportSessionControlChange() {
+    final supportSession = _supportSession;
+    if (_supportAdministratorCloseScheduled ||
+        _supportDisposing ||
+        supportSession == null ||
+        !supportAddressBookModel
+            .consumeAdministratorClosedSession(supportSession.id)) {
+      return;
+    }
+    _supportAdministratorCloseScheduled = true;
+    _supportSessionEnded = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _supportDisposing) return;
+      debugPrint('RDBK administrator closed support session ${supportSession.id}');
+      final controller = widget.tabController;
+      if (controller != null) {
+        controller.closeBy(widget.id);
+      } else {
+        unawaited(bind.sessionClose(sessionId: sessionId));
+      }
+    });
   }
 
   Future<void> _showSupportPostSessionPromptBeforeClose() async {
@@ -674,6 +699,7 @@ class _RemotePageState extends State<RemotePage>
 
   @override
   Future<void> dispose() async {
+    supportAddressBookModel.removeListener(_handleSupportSessionControlChange);
     final closeSession = closeSessionOnDispose.remove(widget.id) ?? true;
     final offerSupportAddressBook =
         closeSession && _ffi.ffiModel.connectionReady;

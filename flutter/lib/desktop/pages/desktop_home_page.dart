@@ -1143,6 +1143,7 @@ class _SupportActiveSessionsPanelState
   Timer? _refreshTimer;
   Timer? _clockTimer;
   bool _wasAuthenticated = false;
+  final Set<String> _closingSessionIds = {};
 
   @override
   void initState() {
@@ -1181,6 +1182,52 @@ class _SupportActiveSessionsPanelState
   void _refresh() {
     if (supportAddressBookModel.isAuthenticated) {
       unawaited(supportAddressBookModel.refreshActiveSessions());
+    }
+  }
+
+  Future<void> _forceClose(SupportSessionSummary session) async {
+    final technician = session.technician?.displayName.isNotEmpty == true
+        ? session.technician!.displayName
+        : session.technician?.username ?? 'nieznanego technika';
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Zamknąć sesję technika?'),
+            content: Text(
+              'Sesja użytkownika $technician zostanie oznaczona jako zakończona, '
+              'a jego klient RustDesk rozłączy połączenie przy najbliższym '
+              'heartbeatcie (zwykle do 20 sekund).',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Anuluj'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Zamknij sesję'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) return;
+    setState(() => _closingSessionIds.add(session.id));
+    try {
+      await supportAddressBookModel.forceCloseSupportSession(session.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Polecenie zamknięcia sesji zostało wysłane.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Nie udało się zamknąć sesji: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _closingSessionIds.remove(session.id));
     }
   }
 
@@ -1305,6 +1352,27 @@ class _SupportActiveSessionsPanelState
                 _formatDuration(session),
                 style: const TextStyle(fontSize: 10),
               ),
+              if (supportAddressBookModel.canCloseSupportSessions) ...[
+                const SizedBox(width: 3),
+                SizedBox(
+                  width: 26,
+                  height: 26,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    tooltip: 'Zamknij sesję technika',
+                    onPressed: _closingSessionIds.contains(session.id)
+                        ? null
+                        : () => _forceClose(session),
+                    icon: _closingSessionIds.contains(session.id)
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.stop_circle_outlined, size: 18),
+                  ),
+                ),
+              ],
             ],
           ),
           if (workstation.isNotEmpty) ...[
