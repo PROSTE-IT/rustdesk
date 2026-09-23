@@ -19,6 +19,7 @@ import '../../models/model.dart';
 import '../../models/input_model.dart';
 import '../../models/platform_model.dart';
 import '../../models/support_address_book_model.dart';
+import '../../models/support_session_activity_tracker.dart';
 import '../../common/shared_state.dart';
 import '../../utils/image.dart';
 import '../../utils/multi_window_manager.dart';
@@ -83,6 +84,7 @@ class _RemotePageState extends State<RemotePage>
   Timer? _timer;
   Timer? _supportSessionStartRetryTimer;
   Timer? _supportServerProfileRetryTimer;
+  Timer? _supportActivityTimer;
   SupportSessionHandle? _supportSession;
   Future<SupportSessionHandle?>? _supportSessionStartFuture;
   bool _supportSessionStarting = false;
@@ -93,6 +95,8 @@ class _RemotePageState extends State<RemotePage>
   bool _supportServerResolutionApplied = false;
   bool? _supportPeerIsServer;
   int _supportServerProfileAttempts = 0;
+  final SupportSessionActivityTracker _supportActivityTracker =
+      SupportSessionActivityTracker();
   String keyboardMode = "legacy";
   bool _isWindowBlur = false;
   final _cursorOverImage = false.obs;
@@ -124,6 +128,36 @@ class _RemotePageState extends State<RemotePage>
 
   bool get _useSupportToolbar =>
       supportAddressBookModel.enabled && _ffi.connType == ConnType.defaultConn;
+
+  bool get _supportWindowActive {
+    if (_supportDisposing ||
+        !_ffi.ffiModel.connectionReady ||
+        _isWindowBlur ||
+        stateGlobal.isFocused.isFalse ||
+        stateGlobal.isMinimized) {
+      return false;
+    }
+    final controller = widget.tabController;
+    if (controller == null) return true;
+    final tabState = controller.state.value;
+    if (tabState.tabs.isEmpty ||
+        tabState.selected < 0 ||
+        tabState.selected >= tabState.tabs.length) {
+      return false;
+    }
+    return tabState.selectedTabInfo.key == widget.id;
+  }
+
+  void _sampleSupportActivity() {
+    _supportActivityTracker.sample(windowActive: _supportWindowActive);
+  }
+
+  void _markSupportInteraction() {
+    if (_ffi.inputModel.isViewOnly) return;
+    _supportActivityTracker.recordInteraction(
+      windowActive: _supportWindowActive,
+    );
+  }
 
   void _syncSupportToolbarInset(double value) {
     if ((_ffi.canvasModel.desktopTopInset - value).abs() < 0.01) return;
@@ -222,6 +256,7 @@ class _RemotePageState extends State<RemotePage>
   }
 
   Map<String, dynamic> _supportTelemetry() {
+    _sampleSupportActivity();
     final peer = _ffi.ffiModel.pi;
     final display = peer.tryGetDisplay();
     return {
@@ -234,6 +269,8 @@ class _RemotePageState extends State<RemotePage>
       'is_installed': peer.isInstalled,
       'display_width': display?.width,
       'display_height': display?.height,
+      'active_window_seconds': _supportActivityTracker.activeWindowSeconds,
+      'interaction_seconds': _supportActivityTracker.interactionSeconds,
     };
   }
 
@@ -379,6 +416,7 @@ class _RemotePageState extends State<RemotePage>
     _supportSessionStartRetryTimer?.cancel();
     _supportSessionStartRetryTimer = null;
     _supportSessionStarting = true;
+    _supportActivityTracker.start();
     final telemetry = _supportTelemetry();
     final startFuture = supportAddressBookModel.startSupportSession(
       widget.id,
@@ -389,6 +427,11 @@ class _RemotePageState extends State<RemotePage>
       final supportSession = await startFuture;
       if (supportSession == null) return;
       _supportSession = supportSession;
+      _supportActivityTimer?.cancel();
+      _supportActivityTimer = Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => _sampleSupportActivity(),
+      );
       if (_supportDisposing || !mounted) {
         await _endSupportSessionOnce(supportSession, telemetry);
         return;
@@ -454,6 +497,7 @@ class _RemotePageState extends State<RemotePage>
 
   @override
   void onWindowBlur() {
+    _supportActivityTracker.sample(windowActive: false);
     super.onWindowBlur();
     // On windows, we use `focus` way to handle keyboard better.
     // Now on Linux, there's some rdev issues which will break the input.
@@ -476,12 +520,14 @@ class _RemotePageState extends State<RemotePage>
 
   @override
   void onWindowFocus() {
+    _supportActivityTracker.sample(windowActive: false);
     super.onWindowFocus();
     // See [onWindowBlur].
     if (isWindows) {
       _isWindowBlur = false;
     }
     stateGlobal.isFocused.value = true;
+    _sampleSupportActivity();
 
     // Restore relative mouse mode constraints when window regains focus.
     if (_ffi.inputModel.relativeMouseMode.value) {
@@ -492,12 +538,15 @@ class _RemotePageState extends State<RemotePage>
 
   @override
   void onWindowRestore() {
+    _supportActivityTracker.sample(windowActive: false);
     super.onWindowRestore();
+    stateGlobal.setMinimized(false);
     // On windows, we use `onWindowRestore` way to handle window restore from
     // a minimized state.
     if (isWindows) {
       _isWindowBlur = false;
     }
+    _sampleSupportActivity();
     WakelockManager.enable(_uniqueKey);
     // Update pointer lock center when window is restored
     _updatePointerLockCenterIfNeeded();
@@ -546,6 +595,7 @@ class _RemotePageState extends State<RemotePage>
 
   @override
   void onWindowMinimize() {
+    _supportActivityTracker.sample(windowActive: false);
     super.onWindowMinimize();
     WakelockManager.disable(_uniqueKey);
     // Release cursor constraints when minimized
@@ -575,10 +625,10 @@ class _RemotePageState extends State<RemotePage>
     final closeSession = closeSessionOnDispose.remove(widget.id) ?? true;
     final offerSupportAddressBook =
         closeSession && _ffi.ffiModel.connectionReady;
-    _supportDisposing = true;
     final pendingSupportSessionStart = _supportSessionStartFuture;
     var completedSupportSession = _supportSession;
     final completedTelemetry = _supportTelemetry();
+    _supportDisposing = true;
     Future<void>? postSessionPromptWrite;
     if (offerSupportAddressBook && completedSupportSession != null) {
       // Persist the prompt before closing the FFI session/window. The main
@@ -593,6 +643,8 @@ class _RemotePageState extends State<RemotePage>
     _supportSessionStartRetryTimer = null;
     _supportServerProfileRetryTimer?.cancel();
     _supportServerProfileRetryTimer = null;
+    _supportActivityTimer?.cancel();
+    _supportActivityTimer = null;
     _timer?.cancel();
 
     // https://github.com/flutter/flutter/issues/64935
@@ -723,6 +775,7 @@ class _RemotePageState extends State<RemotePage>
               color: kColorCanvas,
               child: RawKeyFocusScope(
                   focusNode: _rawKeyFocusNode,
+                  onInput: _markSupportInteraction,
                   onFocusChange: (bool imageFocused) {
                     debugPrint(
                         "onFocusChange(window active:${!_isWindowBlur}) $imageFocused");
@@ -931,6 +984,7 @@ class _RemotePageState extends State<RemotePage>
           _rawKeyFocusNode.requestFocus();
         }
       },
+      onInput: _markSupportInteraction,
       inputModel: _ffi.inputModel,
       child: child,
     );

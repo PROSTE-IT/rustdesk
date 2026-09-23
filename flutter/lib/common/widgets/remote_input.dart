@@ -17,11 +17,13 @@ class RawKeyFocusScope extends StatelessWidget {
   final FocusNode? focusNode;
   final ValueChanged<bool>? onFocusChange;
   final InputModel inputModel;
+  final VoidCallback? onInput;
   final Widget child;
 
   RawKeyFocusScope({
     this.focusNode,
     this.onFocusChange,
+    this.onInput,
     required this.inputModel,
     required this.child,
   });
@@ -40,13 +42,17 @@ class RawKeyFocusScope extends StatelessWidget {
             focusNode: focusNode,
             onFocusChange: onFocusChange,
             onKey: useRawKeyEvents
-                ? (FocusNode data, RawKeyEvent event) =>
-                    inputModel.handleRawKeyEvent(event)
+                ? (FocusNode data, RawKeyEvent event) {
+                    onInput?.call();
+                    return inputModel.handleRawKeyEvent(event);
+                  }
                 : null,
             onKeyEvent: useRawKeyEvents
                 ? null
-                : (FocusNode node, KeyEvent event) =>
-                    inputModel.handleKeyEvent(event),
+                : (FocusNode node, KeyEvent event) {
+                    onInput?.call();
+                    return inputModel.handleKeyEvent(event);
+                  },
             child: child));
   }
 }
@@ -596,6 +602,7 @@ class RawPointerMouseRegion extends StatelessWidget {
   final PointerExitEventListener? onExit;
   final PointerDownEventListener? onPointerDown;
   final PointerUpEventListener? onPointerUp;
+  final VoidCallback? onInput;
 
   RawPointerMouseRegion({
     this.onEnter,
@@ -603,6 +610,7 @@ class RawPointerMouseRegion extends StatelessWidget {
     this.cursor,
     this.onPointerDown,
     this.onPointerUp,
+    this.onInput,
     required this.inputModel,
     required this.child,
   });
@@ -610,20 +618,40 @@ class RawPointerMouseRegion extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Listener(
-      onPointerHover: inputModel.onPointHoverImage,
+      onPointerHover: (evt) {
+        onInput?.call();
+        inputModel.onPointHoverImage(evt);
+      },
       onPointerDown: (evt) {
         onPointerDown?.call(evt);
+        onInput?.call();
         inputModel.onPointDownImage(evt);
       },
       onPointerUp: (evt) {
+        onInput?.call();
         onPointerUp?.call(evt);
         inputModel.onPointUpImage(evt);
       },
-      onPointerMove: inputModel.onPointMoveImage,
-      onPointerSignal: inputModel.onPointerSignalImage,
-      onPointerPanZoomStart: inputModel.onPointerPanZoomStart,
-      onPointerPanZoomUpdate: inputModel.onPointerPanZoomUpdate,
-      onPointerPanZoomEnd: inputModel.onPointerPanZoomEnd,
+      onPointerMove: (evt) {
+        onInput?.call();
+        inputModel.onPointMoveImage(evt);
+      },
+      onPointerSignal: (evt) {
+        onInput?.call();
+        inputModel.onPointerSignalImage(evt);
+      },
+      onPointerPanZoomStart: (evt) {
+        onInput?.call();
+        inputModel.onPointerPanZoomStart(evt);
+      },
+      onPointerPanZoomUpdate: (evt) {
+        onInput?.call();
+        inputModel.onPointerPanZoomUpdate(evt);
+      },
+      onPointerPanZoomEnd: (evt) {
+        onInput?.call();
+        inputModel.onPointerPanZoomEnd(evt);
+      },
       child: MouseRegion(
         cursor: inputModel.isViewOnly
             ? MouseCursor.defer
