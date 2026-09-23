@@ -87,6 +87,7 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
           )) {
             return;
           }
+          await _showSupportClosePrompt(peerId!);
           tabController.closeBy(peerId!);
         },
         page: RemotePage(
@@ -337,6 +338,7 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
           )) {
             return;
           }
+          await _showSupportClosePrompt(key);
           tabController.closeBy(key);
           cancelFunc();
         },
@@ -398,6 +400,13 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
     return widget.params["windowId"];
   }
 
+  Future<void> _showSupportClosePrompt(String id) async {
+    final page = tabController.widget(id);
+    if (page is RemotePage) {
+      await page.showSupportPostSessionPromptBeforeClose();
+    }
+  }
+
   Future<bool> handleWindowCloseButton() async {
     final connLength = tabController.length;
     if (connLength == 1) {
@@ -407,6 +416,7 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
       )) {
         return false;
       }
+      await _showSupportClosePrompt(tabController.state.value.tabs[0].key);
     }
     if (connLength <= 1) {
       tabController.clear();
@@ -420,6 +430,12 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
         res = await closeConfirmDialog();
       }
       if (res) {
+        final ids = tabController.state.value.tabs
+            .map((tab) => tab.key)
+            .toList(growable: false);
+        for (final id in ids) {
+          await _showSupportClosePrompt(id);
+        }
         tabController.clear();
       }
       return res;
@@ -469,6 +485,7 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
           )) {
             return;
           }
+          await _showSupportClosePrompt(id);
           tabController.closeBy(id);
         },
         page: RemotePage(

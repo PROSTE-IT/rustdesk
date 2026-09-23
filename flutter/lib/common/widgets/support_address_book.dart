@@ -4,9 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/common/widgets/peer_card.dart';
 import 'package:flutter_hbb/models/peer_tab_model.dart';
+import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/support_address_book_model.dart';
 
 enum _SupportDeviceFilter { all, online, offline, servers, computers }
+enum _SupportDeviceView { list, tiles }
+
+const _supportDeviceViewOption = 'proste-it-support-device-view';
 
 const _supportSessionSummaryPromptsEnabled = bool.fromEnvironment(
   'RDBK_SESSION_SUMMARY_PROMPTS',
@@ -29,11 +33,15 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
   Timer? _onlineTimer;
   Timer? _syncTimer;
   _SupportDeviceFilter _filter = _SupportDeviceFilter.all;
+  _SupportDeviceView _deviceView = _SupportDeviceView.tiles;
   String? _selectedCustomerId;
 
   @override
   void initState() {
     super.initState();
+    if (bind.mainGetLocalOption(key: _supportDeviceViewOption) == 'list') {
+      _deviceView = _SupportDeviceView.list;
+    }
     supportAddressBookModel.addListener(_modelChanged);
     supportAddressBookModel.startOnlineTracking();
     _onlineTimer = Timer.periodic(
@@ -286,6 +294,30 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
             ),
           ),
           _buildFilters(),
+          SegmentedButton<_SupportDeviceView>(
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(
+                value: _SupportDeviceView.list,
+                icon: Icon(Icons.view_agenda_outlined),
+                label: Text('Lista'),
+              ),
+              ButtonSegment(
+                value: _SupportDeviceView.tiles,
+                icon: Icon(Icons.grid_view_outlined),
+                label: Text('Kafelki'),
+              ),
+            ],
+            selected: {_deviceView},
+            onSelectionChanged: (selection) {
+              final view = selection.first;
+              setState(() => _deviceView = view);
+              unawaited(bind.mainSetLocalOption(
+                key: _supportDeviceViewOption,
+                value: view == _SupportDeviceView.tiles ? 'tiles' : 'list',
+              ));
+            },
+          ),
           FilledButton.icon(
             onPressed: () => showSupportDeviceDialog(context),
             icon: const Icon(Icons.add),
@@ -473,31 +505,48 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
               ),
       );
     }
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
-      itemCount: devices.length + 1,
-      itemBuilder: (_, index) {
-        if (index == 0) {
-          final title = customer?.name ?? 'Urządzenia';
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '$title • ${devices.length}',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
+    final title = customer?.name ?? 'Urządzenia';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '$title • ${devices.length}',
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
-                if (query.isNotEmpty)
-                  Text('wyniki wyszukiwania',
-                      style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
-          );
-        }
-        return _buildDevice(devices[index - 1]);
-      },
+              ),
+              if (query.isNotEmpty)
+                Text('wyniki wyszukiwania',
+                    style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: _deviceView == _SupportDeviceView.list
+              ? ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                  itemCount: devices.length,
+                  itemBuilder: (_, index) => _buildDevice(devices[index]),
+                )
+              : GridView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                  gridDelegate:
+                      const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 360,
+                    mainAxisExtent: 244,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                  ),
+                  itemCount: devices.length,
+                  itemBuilder: (_, index) => _buildDeviceTile(devices[index]),
+                ),
+        ),
+      ],
     );
   }
 
@@ -558,6 +607,94 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeviceTile(SupportDevice device) {
+    final critical = device.isCritical || device.warning.isNotEmpty;
+    final hostname = device.hostname.isEmpty ? '—' : device.hostname;
+    final username =
+        device.remoteUsername.isEmpty ? '—' : device.remoteUsername;
+    return Card(
+      key: ValueKey('support-device-tile-${device.id}'),
+      color: critical ? Theme.of(context).colorScheme.errorContainer : null,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => connectInPeerTab(
+            context, device.toPeer(), PeerTabIndex.supportBook),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(device.deviceType == 'server'
+                      ? Icons.dns_outlined
+                      : Icons.computer_outlined),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          device.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        Text(
+                          '${device.customerName} • ID ${device.rustdeskId}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  _deviceMenu(device),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  _deviceBadge(device.online ? 'Online' : 'Offline',
+                      device.online ? Colors.green : Colors.grey),
+                  _deviceBadge(
+                    device.deviceType == 'server' ? 'Serwer' : 'Komputer',
+                    Theme.of(context).colorScheme.primary,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Host: $hostname',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Użytkownik: $username',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const Spacer(),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: FilledButton.icon(
+                  onPressed: () => connectInPeerTab(
+                      context, device.toPeer(), PeerTabIndex.supportBook),
+                  icon: const Icon(Icons.link),
+                  label: const Text('Połącz'),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1071,15 +1208,51 @@ Future<bool> _confirm(
       false;
 }
 
+String _supportTelemetryText(
+  Map<String, dynamic>? telemetry,
+  String key,
+) =>
+    telemetry?[key]?.toString().trim() ?? '';
+
+String _suggestSupportDeviceName(Map<String, dynamic>? telemetry) {
+  var username = _supportTelemetryText(telemetry, 'peer_username');
+  final hostname = _supportTelemetryText(telemetry, 'peer_hostname');
+  final domainSeparator = String.fromCharCode(92);
+  if (username.contains(domainSeparator)) {
+    username = username.split(domainSeparator).last;
+  }
+  if (username.contains('@')) username = username.split('@').first;
+  return [username, hostname].where((value) => value.isNotEmpty).join('/');
+}
+
+String _suggestSupportDeviceType(Map<String, dynamic>? telemetry) {
+  final hostname = _supportTelemetryText(telemetry, 'peer_hostname');
+  final platform = _supportTelemetryText(telemetry, 'peer_platform');
+  final serverHostname = RegExp(
+    r'(^|[-_])(srv|server|dc\d*|hv\d*|hyperv)([-_]|$)',
+    caseSensitive: false,
+  ).hasMatch(hostname);
+  if (telemetry?['is_headless'] == true ||
+      platform.toLowerCase().contains('server') ||
+      serverHostname) {
+    return 'server';
+  }
+  return 'computer';
+}
+
 Future<void> showSupportDeviceDialog(
   BuildContext context, {
   SupportDevice? device,
   String? rustdeskId,
   String? initialCustomerId,
+  Map<String, dynamic>? initialTelemetry,
+  String? telemetrySessionId,
 }) async {
   final idController =
       TextEditingController(text: device?.rustdeskId ?? rustdeskId ?? '');
-  final nameController = TextEditingController(text: device?.name ?? '');
+  final nameController = TextEditingController(
+    text: device?.name ?? _suggestSupportDeviceName(initialTelemetry),
+  );
   final noteController = TextEditingController(text: device?.note ?? '');
   final newCustomerController = TextEditingController();
   String? customerId = device?.customerId ??
@@ -1092,7 +1265,8 @@ Future<void> showSupportDeviceDialog(
           .any((customer) => customer.id == customerId)) {
     customerId = null;
   }
-  var deviceType = device?.deviceType ?? 'computer';
+  var deviceType =
+      device?.deviceType ?? _suggestSupportDeviceType(initialTelemetry);
   var saving = false;
   String? errorMessage;
 
@@ -1240,6 +1414,7 @@ Future<void> showSupportDeviceDialog(
                           name: name,
                           note: noteController.text,
                           deviceType: deviceType,
+                          telemetrySessionId: telemetrySessionId,
                         );
                       } else {
                         await supportAddressBookModel.updateDevice(
@@ -1431,6 +1606,22 @@ String _sessionSyncLabel(String? sessionId) {
 
 bool _showingPostSessionPrompt = false;
 
+SupportPostSessionPrompt _newSupportPostSessionPrompt(
+  String rustdeskId, {
+  SupportSessionHandle? supportSession,
+  Map<String, dynamic> telemetry = const {},
+}) {
+  final endedAt = DateTime.now().toUtc();
+  return SupportPostSessionPrompt(
+    id: supportSession?.id ?? '$rustdeskId-${endedAt.microsecondsSinceEpoch}',
+    rustdeskId: rustdeskId,
+    supportSessionId: supportSession?.id,
+    startedAt: supportSession?.startedAt ?? endedAt,
+    endedAt: endedAt,
+    telemetry: Map<String, dynamic>.from(telemetry),
+  );
+}
+
 Future<void> queueSupportAddressBookPrompt(
   String rustdeskId, {
   SupportSessionHandle? supportSession,
@@ -1440,17 +1631,94 @@ Future<void> queueSupportAddressBookPrompt(
       !supportAddressBookModel.isAuthenticated) {
     return;
   }
-  final endedAt = DateTime.now().toUtc();
   await supportAddressBookModel.enqueuePostSessionPrompt(
-    SupportPostSessionPrompt(
-      id: supportSession?.id ?? '$rustdeskId-${endedAt.microsecondsSinceEpoch}',
-      rustdeskId: rustdeskId,
-      supportSessionId: supportSession?.id,
-      startedAt: supportSession?.startedAt ?? endedAt,
-      endedAt: endedAt,
-      telemetry: Map<String, dynamic>.from(telemetry),
+    _newSupportPostSessionPrompt(
+      rustdeskId,
+      supportSession: supportSession,
+      telemetry: telemetry,
     ),
   );
+}
+
+Future<bool> showSupportAddressBookPrompt(
+  BuildContext context,
+  SupportPostSessionPrompt prompt,
+) async {
+  try {
+    final existing = await supportAddressBookModel.lookup(prompt.rustdeskId);
+    if (!context.mounted) return false;
+    if (_supportSessionSummaryPromptsEnabled &&
+        prompt.supportSessionId != null) {
+      final result = await _showSupportSessionResultDialog(context, prompt);
+      if (result != null) {
+        await supportAddressBookModel.updateSupportSessionResult(
+          prompt.supportSessionId!,
+          outcome: result.outcome,
+          note: result.note,
+          ticketReference: result.ticketReference,
+        );
+      }
+    }
+    if (existing != null) {
+      await supportAddressBookModel.completePostSessionPrompt(prompt.id);
+      return true;
+    }
+    if (!context.mounted) return false;
+    final shouldEdit = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Dodać do książki adresowej?'),
+            content: Text(
+              'Urządzenie ${prompt.rustdeskId} nie znajduje się we wspólnej '
+              'książce. Czy dodać je teraz?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Nie'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Dodaj'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (shouldEdit && context.mounted) {
+      await showSupportDeviceDialog(
+        context,
+        rustdeskId: prompt.rustdeskId,
+        initialTelemetry: prompt.telemetry,
+        telemetrySessionId: prompt.supportSessionId,
+      );
+    }
+    await supportAddressBookModel.completePostSessionPrompt(prompt.id);
+    return true;
+  } catch (error) {
+    debugPrint('Support address book post-session prompt failed: $error');
+    return false;
+  }
+}
+
+Future<bool> showSupportAddressBookPromptBeforeClose(
+  BuildContext context,
+  String rustdeskId, {
+  SupportSessionHandle? supportSession,
+  Map<String, dynamic> telemetry = const {},
+}) async {
+  if (supportAddressBookApiUrl.trim().isEmpty ||
+      !supportAddressBookModel.isAuthenticated) {
+    return false;
+  }
+  final prompt = _newSupportPostSessionPrompt(
+    rustdeskId,
+    supportSession: supportSession,
+    telemetry: telemetry,
+  );
+  await supportAddressBookModel.enqueuePostSessionPrompt(prompt);
+  if (!context.mounted) return false;
+  return showSupportAddressBookPrompt(context, prompt);
 }
 
 Future<void> showPendingSupportAddressBookPrompt() async {
@@ -1470,58 +1738,7 @@ Future<void> showPendingSupportAddressBookPrompt() async {
   _showingPostSessionPrompt = true;
   var completed = false;
   try {
-    final existing = await supportAddressBookModel.lookup(prompt.rustdeskId);
-    if (_supportSessionSummaryPromptsEnabled &&
-        prompt.supportSessionId != null) {
-      final result = await _showSupportSessionResultDialog(context, prompt);
-      if (result != null) {
-        await supportAddressBookModel.updateSupportSessionResult(
-          prompt.supportSessionId!,
-          outcome: result.outcome,
-          note: result.note,
-          ticketReference: result.ticketReference,
-        );
-      }
-    }
-    if (existing != null) {
-      await supportAddressBookModel.completePostSessionPrompt(prompt.id);
-      completed = true;
-      return;
-    }
-    final currentContext = globalKey.currentState?.context;
-    if (currentContext == null || !currentContext.mounted) return;
-    final shouldEdit = await showDialog<bool>(
-          context: currentContext,
-          builder: (dialogContext) => AlertDialog(
-            title: const Text('Dodać do książki adresowej?'),
-            content: Text(
-              'Zakończono sesję z nieznanym urządzeniem ${prompt.rustdeskId}. '
-              'Czy dodać je do wspólnej książki?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('Nie'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: const Text('Dodaj'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-    final editContext = globalKey.currentState?.context;
-    if (shouldEdit && editContext != null && editContext.mounted) {
-      await showSupportDeviceDialog(
-        editContext,
-        rustdeskId: prompt.rustdeskId,
-      );
-    }
-    await supportAddressBookModel.completePostSessionPrompt(prompt.id);
-    completed = true;
-  } catch (error) {
-    debugPrint('Support address book post-session prompt failed: $error');
+    completed = await showSupportAddressBookPrompt(context, prompt);
   } finally {
     _showingPostSessionPrompt = false;
     if (!completed && supportAddressBookModel.isAuthenticated) {

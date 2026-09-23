@@ -68,6 +68,13 @@ class RemotePage extends StatefulWidget {
 
   FFI get ffi => (_lastState.value! as _RemotePageState)._ffi;
 
+  Future<void> showSupportPostSessionPromptBeforeClose() async {
+    final state = _lastState.value;
+    if (state is _RemotePageState) {
+      await state._showSupportPostSessionPromptBeforeClose();
+    }
+  }
+
   @override
   State<RemotePage> createState() {
     final state = _RemotePageState(id);
@@ -90,6 +97,7 @@ class _RemotePageState extends State<RemotePage>
   bool _supportSessionStarting = false;
   bool _supportDisposing = false;
   bool _supportSessionEnded = false;
+  bool _supportClosePromptHandled = false;
   bool _supportServerProfileApplying = false;
   bool _supportServerImageProfileApplied = false;
   bool _supportServerResolutionApplied = false;
@@ -396,10 +404,54 @@ class _RemotePageState extends State<RemotePage>
   ) async {
     if (_supportSessionEnded) return;
     _supportSessionEnded = true;
-    await supportAddressBookModel.endSupportSession(
-      supportSession.id,
-      telemetry,
+    try {
+      await supportAddressBookModel.endSupportSession(
+        supportSession.id,
+        telemetry,
+      );
+    } catch (_) {
+      _supportSessionEnded = false;
+      rethrow;
+    }
+  }
+
+  Future<void> _showSupportPostSessionPromptBeforeClose() async {
+    if (_supportClosePromptHandled ||
+        _supportDisposing ||
+        !mounted ||
+        !_ffi.ffiModel.connectionReady) {
+      return;
+    }
+    var supportSession = _supportSession;
+    final pendingStart = _supportSessionStartFuture;
+    if (supportSession == null && pendingStart != null) {
+      try {
+        supportSession = await pendingStart.timeout(const Duration(seconds: 1));
+      } catch (error) {
+        debugPrint('RDBK session start was not ready for the close prompt: $error');
+      }
+    }
+    if (!mounted) return;
+    _supportActivityTimer?.cancel();
+    _supportActivityTimer = null;
+    _timer?.cancel();
+    _timer = null;
+    final telemetry = _supportTelemetry();
+    if (supportSession != null) {
+      try {
+        await _endSupportSessionOnce(supportSession, telemetry);
+      } catch (error) {
+        debugPrint('Failed to finish RDBK session before close prompt: $error');
+      }
+    }
+    if (!mounted) return;
+    final completed = await showSupportAddressBookPromptBeforeClose(
+      context,
+      widget.id,
+      supportSession: supportSession,
+      telemetry: telemetry,
     );
+    if (completed) _supportClosePromptHandled = true;
   }
 
   Future<void> _startSupportSession() async {
@@ -630,7 +682,9 @@ class _RemotePageState extends State<RemotePage>
     final completedTelemetry = _supportTelemetry();
     _supportDisposing = true;
     Future<void>? postSessionPromptWrite;
-    if (offerSupportAddressBook && completedSupportSession != null) {
+    if (offerSupportAddressBook &&
+        completedSupportSession != null &&
+        !_supportClosePromptHandled) {
       // Persist the prompt before closing the FFI session/window. The main
       // window can then display it even if this Flutter engine disappears.
       postSessionPromptWrite = queueSupportAddressBookPrompt(
@@ -711,7 +765,7 @@ class _RemotePageState extends State<RemotePage>
         completedTelemetry,
       );
     }
-    if (offerSupportAddressBook) {
+    if (offerSupportAddressBook && !_supportClosePromptHandled) {
       postSessionPromptWrite ??= queueSupportAddressBookPrompt(
         widget.id,
         supportSession: completedSupportSession,

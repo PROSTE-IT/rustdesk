@@ -179,6 +179,8 @@ class SupportSessionSummary {
   final String outcome;
   final String note;
   final bool active;
+  final bool activityActive;
+  final DateTime? lastActivityAt;
   final int durationSeconds;
 
   const SupportSessionSummary({
@@ -193,6 +195,8 @@ class SupportSessionSummary {
     required this.outcome,
     required this.note,
     required this.active,
+    required this.activityActive,
+    required this.lastActivityAt,
     required this.durationSeconds,
   });
 
@@ -212,6 +216,9 @@ class SupportSessionSummary {
       outcome: json['outcome']?.toString() ?? '',
       note: json['note']?.toString() ?? '',
       active: json['active'] == true,
+      activityActive: json['activity_active'] == true,
+      lastActivityAt:
+          DateTime.tryParse(json['last_activity_at']?.toString() ?? ''),
       durationSeconds: json['duration_seconds'] as int? ?? 0,
     );
   }
@@ -860,6 +867,7 @@ class SupportAddressBookModel with ChangeNotifier {
     required String name,
     required String note,
     required String deviceType,
+    String? telemetrySessionId,
   }) async {
     final response = await http.post(
       _uri('api/v1/devices/'),
@@ -870,6 +878,8 @@ class SupportAddressBookModel with ChangeNotifier {
         'name': name.trim(),
         'note': note.trim(),
         'device_type': deviceType,
+        if (telemetrySessionId != null && telemetrySessionId.isNotEmpty)
+          'telemetry_session_id': telemetrySessionId,
       }),
     );
     _requireSuccess(response);

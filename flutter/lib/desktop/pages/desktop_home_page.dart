@@ -1249,6 +1249,10 @@ class _SupportActiveSessionsPanelState
   }
 
   Widget _buildSession(SupportSessionSummary session) {
+    final activityColor =
+        session.activityActive ? Colors.green : Colors.redAccent;
+    final activityLabel =
+        session.activityActive ? 'Aktywny' : 'Nieaktywny';
     final technician = session.technician?.displayName.isNotEmpty == true
         ? session.technician!.displayName
         : session.technician?.username ?? 'Nieznany technik';
@@ -1271,7 +1275,12 @@ class _SupportActiveSessionsPanelState
         children: [
           Row(
             children: [
-              const Icon(Icons.circle, size: 8, color: Colors.green),
+              Tooltip(
+                message: session.activityActive
+                    ? 'Aktywność w ciągu ostatnich 15 minut'
+                    : 'Brak aktywnego okna i interakcji przez 15 minut',
+                child: Icon(Icons.circle, size: 8, color: activityColor),
+              ),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -1284,6 +1293,15 @@ class _SupportActiveSessionsPanelState
                   ),
                 ),
               ),
+              Text(
+                activityLabel,
+                style: TextStyle(
+                  color: activityColor,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 7),
               Text(
                 _formatDuration(session),
                 style: const TextStyle(fontSize: 10),
