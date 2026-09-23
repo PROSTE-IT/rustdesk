@@ -21,8 +21,7 @@ const managedWindowsUpdateChannels = {
 const supportClientBuildUuid = String.fromEnvironment('RDBK_BUILD_UUID');
 const supportClientBuildRunId = int.fromEnvironment('RDBK_BUILD_RUN_ID');
 const supportClientVersion = String.fromEnvironment('RDBK_APP_VERSION');
-const _supportTechnicianDisplayNameOption =
-    'proste-it-technician-display-name';
+const _supportTechnicianDisplayNameOption = 'proste-it-technician-display-name';
 
 class SupportCustomer {
   final String id;

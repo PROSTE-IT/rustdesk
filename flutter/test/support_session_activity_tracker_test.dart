@@ -42,7 +42,8 @@ void main() {
     expect(tracker.interactionSeconds, 30);
   });
 
-  test('interaction expires after idle window and never exceeds active time', () {
+  test('interaction expires after idle window and never exceeds active time',
+      () {
     final tracker = SupportSessionActivityTracker(
       interactionIdleWindow: const Duration(seconds: 60),
     );
@@ -58,7 +59,8 @@ void main() {
     expect(tracker.interactionSeconds, 60);
   });
 
-  test('ignored interaction while hidden requires a new event after restore', () {
+  test('ignored interaction while hidden requires a new event after restore',
+      () {
     final tracker = SupportSessionActivityTracker();
     tracker.start();
     tracker.recordInteraction(

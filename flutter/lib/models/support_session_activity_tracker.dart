@@ -40,9 +40,8 @@ class SupportSessionActivityTracker {
       _activeWindow += now - _lastSample;
       final lastInteraction = _lastInteraction;
       if (lastInteraction != null) {
-        final interactionStart = _lastSample > lastInteraction
-            ? _lastSample
-            : lastInteraction;
+        final interactionStart =
+            _lastSample > lastInteraction ? _lastSample : lastInteraction;
         final idleAt = lastInteraction + interactionIdleWindow;
         final interactionEnd = now < idleAt ? now : idleAt;
         if (interactionEnd > interactionStart) {
