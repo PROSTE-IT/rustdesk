@@ -780,7 +780,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
-          if (critical && device.warning.isNotEmpty) ...[
+          if (device.warning.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(
               device.warning,
@@ -944,9 +944,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
       );
 
   bool _needsAttention(SupportDevice device) =>
-      device.isCritical ||
-      device.warning.isNotEmpty ||
-      (device.hostHealth?.hasAlert ?? false);
+      device.hostHealth?.hasAlert ?? false;
 
   List<Widget> _healthBadges(SupportDevice device) {
     final health = device.hostHealth;
@@ -957,7 +955,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
       if (health.memoryAlert) _deviceBadge('RAM >80%', error),
       if (health.diskAlerts.isNotEmpty) _deviceBadge('Dysk >90%', error),
       if (health.pendingReboot) _deviceBadge('Wymaga restartu', Colors.orange),
-      if (health.criticalUnacknowledged)
+      if (health.criticalAlert)
         _deviceBadge('Critical', Colors.deepOrange),
     ];
   }

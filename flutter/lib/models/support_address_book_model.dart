@@ -174,6 +174,8 @@ class SupportHostHealth {
   final String lastCriticalSource;
   final int? lastCriticalEventId;
   final DateTime? criticalAcknowledgedAt;
+  final bool criticalAlert;
+  final bool requiresAttention;
   final DateTime? metricsUpdatedAt;
 
   const SupportHostHealth({
@@ -188,45 +190,66 @@ class SupportHostHealth {
     required this.lastCriticalSource,
     required this.lastCriticalEventId,
     required this.criticalAcknowledgedAt,
+    required this.criticalAlert,
+    required this.requiresAttention,
     required this.metricsUpdatedAt,
   });
 
-  factory SupportHostHealth.fromJson(Map<String, dynamic> json) =>
-      SupportHostHealth(
-        cpuHourAverage: _supportDouble(json['cpu_hour_average']),
-        memoryHourAverage: _supportDouble(json['memory_hour_average']),
-        cpuAlert: json['cpu_alert'] == true,
-        memoryAlert: json['memory_alert'] == true,
-        diskAlerts: (json['disk_alerts'] as List? ?? const [])
-            .map((item) => item.toString())
-            .toList(),
-        latestDisks: (json['latest_disks'] as List? ?? const [])
-            .whereType<Map>()
-            .map((item) => Map<String, dynamic>.from(item))
-            .toList(),
-        pendingReboot: json['pending_reboot'] == true,
-        lastCriticalAt:
-            DateTime.tryParse(json['last_critical_at']?.toString() ?? ''),
-        lastCriticalSource: json['last_critical_source']?.toString() ?? '',
-        lastCriticalEventId:
-            int.tryParse(json['last_critical_event_id']?.toString() ?? ''),
-        criticalAcknowledgedAt: DateTime.tryParse(
-            json['critical_acknowledged_at']?.toString() ?? ''),
-        metricsUpdatedAt:
-            DateTime.tryParse(json['metrics_updated_at']?.toString() ?? ''),
-      );
+  factory SupportHostHealth.fromJson(Map<String, dynamic> json) {
+    final lastCriticalAt =
+        DateTime.tryParse(json['last_critical_at']?.toString() ?? '');
+    final criticalAcknowledgedAt = DateTime.tryParse(
+        json['critical_acknowledged_at']?.toString() ?? '');
+    final criticalUnacknowledged = lastCriticalAt != null &&
+        (criticalAcknowledgedAt == null ||
+            criticalAcknowledgedAt.isBefore(lastCriticalAt));
+    final criticalAge = lastCriticalAt == null
+        ? null
+        : DateTime.now().toUtc().difference(lastCriticalAt.toUtc());
+    final fallbackCriticalAlert = criticalUnacknowledged &&
+        criticalAge != null &&
+        !criticalAge.isNegative &&
+        criticalAge <= const Duration(hours: 24);
+    final criticalAlert = json.containsKey('critical_alert')
+        ? json['critical_alert'] == true
+        : fallbackCriticalAlert;
+    final cpuAlert = json['cpu_alert'] == true;
+    final memoryAlert = json['memory_alert'] == true;
+    final diskAlerts = (json['disk_alerts'] as List? ?? const [])
+        .map((item) => item.toString())
+        .toList();
+    final requiresAttention = json.containsKey('requires_attention')
+        ? json['requires_attention'] == true
+        : cpuAlert || memoryAlert || diskAlerts.isNotEmpty || criticalAlert;
+    return SupportHostHealth(
+      cpuHourAverage: _supportDouble(json['cpu_hour_average']),
+      memoryHourAverage: _supportDouble(json['memory_hour_average']),
+      cpuAlert: cpuAlert,
+      memoryAlert: memoryAlert,
+      diskAlerts: diskAlerts,
+      latestDisks: (json['latest_disks'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(),
+      pendingReboot: json['pending_reboot'] == true,
+      lastCriticalAt: lastCriticalAt,
+      lastCriticalSource: json['last_critical_source']?.toString() ?? '',
+      lastCriticalEventId:
+          int.tryParse(json['last_critical_event_id']?.toString() ?? ''),
+      criticalAcknowledgedAt: criticalAcknowledgedAt,
+      criticalAlert: criticalAlert,
+      requiresAttention: requiresAttention,
+      metricsUpdatedAt:
+          DateTime.tryParse(json['metrics_updated_at']?.toString() ?? ''),
+    );
+  }
 
   bool get criticalUnacknowledged =>
       lastCriticalAt != null &&
       (criticalAcknowledgedAt == null ||
           criticalAcknowledgedAt!.isBefore(lastCriticalAt!));
 
-  bool get hasAlert =>
-      cpuAlert ||
-      memoryAlert ||
-      diskAlerts.isNotEmpty ||
-      pendingReboot ||
-      criticalUnacknowledged;
+  bool get hasAlert => requiresAttention;
 }
 
 class SupportHostMetric {
