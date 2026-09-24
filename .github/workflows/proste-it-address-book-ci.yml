@@ -29,10 +29,12 @@ on:
       - flutter/lib/desktop/pages/desktop_setting_page.dart
       - flutter/lib/desktop/widgets/remote_toolbar.dart
       - flutter/lib/models/model.dart
+      - flutter/lib/models/legacy_host_migration.dart
       - flutter/lib/models/peer_tab_model.dart
       - flutter/lib/models/support_address_book_model.dart
       - flutter/lib/models/support_session_activity_tracker.dart
       - flutter/test/support_session_activity_tracker_test.dart
+      - flutter/test/legacy_host_migration_test.dart
       - flutter/lib/utils/multi_window_manager.dart
       - .github/workflows/proste-it-address-book-ci.yml
       - flutter/lib/models/support_secure_storage*.dart
@@ -71,6 +73,7 @@ jobs:
             lib/desktop/pages/desktop_setting_page.dart
             lib/desktop/pages/remote_tab_page.dart
             lib/desktop/widgets/remote_toolbar.dart
+            lib/models/legacy_host_migration.dart
             lib/models/support_address_book_model.dart
             lib/models/support_session_activity_tracker.dart
             lib/models/model.dart
@@ -79,6 +82,7 @@ jobs:
             lib/models/support_secure_storage_stub.dart
             lib/utils/multi_window_manager.dart
             test/support_session_activity_tracker_test.dart
+            test/legacy_host_migration_test.dart
           )
           dart format "${files[@]}"
           git diff --exit-code -- "${files[@]}"
@@ -93,6 +97,7 @@ jobs:
         working-directory: flutter
         run: |
           for source in \
+            lib/models/legacy_host_migration.dart \
             lib/models/support_address_book_model.dart \
             lib/models/support_session_activity_tracker.dart \
             lib/models/support_secure_storage.dart \
@@ -127,9 +132,12 @@ jobs:
             dart analyze "$source"
           done
 
-      - name: Test support session activity tracking
+      - name: Test support session and host migration helpers
         working-directory: flutter
-        run: flutter test test/support_session_activity_tracker_test.dart
+        run: >-
+          flutter test
+          test/support_session_activity_tracker_test.dart
+          test/legacy_host_migration_test.dart
 
       - name: Validate Python build script
         run: python -m py_compile build.py res/msi/preprocess.py

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,6 +20,7 @@ import 'package:window_size/window_size.dart' as window_size;
 
 import '../../common.dart';
 import '../../models/model.dart';
+import '../../models/legacy_host_migration.dart';
 import '../../models/platform_model.dart';
 import '../../models/support_address_book_model.dart';
 import '../../common/shared_state.dart';
@@ -1731,14 +1731,20 @@ class _LegacyHostMigrationButton extends StatefulWidget {
 
 class _LegacyHostMigrationButtonState
     extends State<_LegacyHostMigrationButton> {
-  bool _promptScheduled = false;
   bool _promptOpen = false;
-  bool _busy = false;
-  bool _started = false;
+
+  String get _sessionKey => '${widget.id}:${widget.ffi.sessionId}';
+
+  bool get _busy => legacyHostMigrationCoordinator.isInFlight(_sessionKey);
+
+  bool get _started =>
+      legacyHostMigrationCoordinator.isDispatched(_sessionKey);
 
   bool get _eligible {
     final pi = widget.ffi.ffiModel.pi;
     return !_started &&
+        pi.isSet.isTrue &&
+        widget.ffi.ffiModel.waitForFirstImage.isFalse &&
         pi.platform == kPeerPlatformWindows &&
         pi.version.isNotEmpty &&
         versionCmp(pi.version, '1.4.9') < 0 &&
@@ -1750,17 +1756,25 @@ class _LegacyHostMigrationButtonState
   @override
   Widget build(BuildContext context) {
     if (!_eligible && !_started) return const Offstage();
-    if (_eligible && !_promptScheduled) {
-      _promptScheduled = true;
+    if (_eligible &&
+        legacyHostMigrationCoordinator.reserveAutoPrompt(_sessionKey)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _eligible) unawaited(_promptAndStart());
       });
     }
     return _SupportToolbarActionButton(
-      icon: _started ? Icons.check_circle_outline : Icons.system_update_alt,
-      label: _started ? 'Migracja uruchomiona' : 'Aktualizuj host',
+      icon: _started
+          ? Icons.check_circle_outline
+          : _busy
+              ? Icons.downloading
+              : Icons.system_update_alt,
+      label: _started
+          ? 'Polecenie wysłane'
+          : _busy
+              ? 'Przygotowuję migrację'
+              : 'Aktualizuj host',
       tooltip: _started
-          ? 'Instalacja nowego Helpdeska została uruchomiona'
+          ? 'Polecenie instalacji nowego Helpdeska zostało wysłane do hosta'
           : 'Host ma RustDesk ${widget.ffi.ffiModel.pi.version}; uruchom migrację do wersji zarządzanej',
       active: !_started,
       onPressed: _busy || _started ? null : _promptAndStart,
@@ -1801,7 +1815,8 @@ class _LegacyHostMigrationButtonState
       _promptOpen = false;
     }
     if (!confirmed || !mounted) return;
-    setState(() => _busy = true);
+    if (!legacyHostMigrationCoordinator.tryBegin(_sessionKey)) return;
+    setState(() {});
     try {
       final update = await supportAddressBookModel.helpdeskMigrationUpdate();
       await supportAddressBookModel.recordLegacyMigration(
@@ -1810,42 +1825,31 @@ class _LegacyHostMigrationButtonState
         update: update,
       );
       await _sendMigrationCommand(update);
+      legacyHostMigrationCoordinator.markDispatched(_sessionKey);
       if (!mounted) return;
-      setState(() => _started = true);
+      setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-              'Migracja uruchomiona. Zaakceptuj UAC na zdalnym komputerze, jeśli się pojawi.'),
+              'Polecenie wysłane. Na hoście powinno być widoczne okno pobierania, pasek instalacji i ewentualny monit UAC.'),
         ),
       );
     } catch (error) {
+      legacyHostMigrationCoordinator.markFailed(_sessionKey);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Nie udało się uruchomić migracji: $error')),
       );
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() {});
     }
   }
 
   Future<void> _sendMigrationCommand(SupportClientUpdate update) async {
-    final url = update.downloadUrl.replaceAll("'", "''");
-    final signer = supportWindowsSignerSubject.replaceAll("'", "''");
-    final script = "\$p=Join-Path \$env:TEMP 'proste-it-helpdesk-update.msi';"
-        "Invoke-WebRequest -UseBasicParsing -Uri '$url' -OutFile \$p;"
-        "\$s=Get-AuthenticodeSignature -LiteralPath \$p;"
-        "if(\$s.Status -ne 'Valid'){Remove-Item -LiteralPath \$p -Force;throw 'Nieprawidlowy podpis instalatora'};"
-        "if('$signer' -and \$s.SignerCertificate.Subject -notlike ('*'+'$signer'+'*')){Remove-Item -LiteralPath \$p -Force;throw 'Nieprawidlowy wydawca instalatora'};"
-        "\$a=@('/i',('\"'+\$p+'\"'),'/qn','LAUNCH_TRAY_APP=N','REBOOT=ReallySuppress','/norestart');"
-        "Start-Process -FilePath (Join-Path \$env:SystemRoot 'System32\\msiexec.exe') -Verb RunAs -ArgumentList \$a";
-    final utf16 = <int>[];
-    for (final codeUnit in script.codeUnits) {
-      utf16
-        ..add(codeUnit & 0xff)
-        ..add((codeUnit >> 8) & 0xff);
-    }
-    final command =
-        'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${base64Encode(utf16)}';
+    final command = buildLegacyHostMigrationCommand(
+      downloadUrl: update.downloadUrl,
+      signerSubject: supportWindowsSignerSubject,
+    );
     bind.sessionInputKey(
       sessionId: widget.ffi.sessionId,
       name: 'VK_R',
@@ -1856,12 +1860,17 @@ class _LegacyHostMigrationButtonState
       shift: false,
       command: true,
     );
-    await Future<void>.delayed(const Duration(milliseconds: 700));
+    // Older hosts can need a moment to render the Run dialog. Sending the
+    // encoded command too early makes it disappear into the remote desktop as
+    // ordinary keystrokes, with no error visible to the technician.
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
     bind.sessionInputString(
       sessionId: widget.ffi.sessionId,
       value: command,
     );
-    await Future<void>.delayed(const Duration(milliseconds: 250));
+    // Give the legacy peer time to process the long encoded command before
+    // pressing Enter.
+    await Future<void>.delayed(const Duration(milliseconds: 1000));
     bind.sessionInputKey(
       sessionId: widget.ffi.sessionId,
       name: 'VK_RETURN',
