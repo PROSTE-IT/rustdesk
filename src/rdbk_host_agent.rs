@@ -666,13 +666,17 @@ fn local_ip_addresses() -> Vec<String> {
             if !address.is_loopback()
                 && !address.is_unspecified()
                 && !address.is_multicast()
-                && !address.is_unicast_link_local()
+                && !is_ipv6_unicast_link_local(address)
             {
                 ipv6.insert(address.to_string());
             }
         }
     }
     ipv4.into_iter().chain(ipv6).take(32).collect()
+}
+
+fn is_ipv6_unicast_link_local(address: std::net::Ipv6Addr) -> bool {
+    address.segments()[0] & 0xffc0 == 0xfe80
 }
 
 fn nearby_rustdesk_ids() -> Vec<String> {
@@ -764,6 +768,14 @@ mod tests {
         let value = hash_identifier("AA-BB-CC-DD-EE-FF|192.0.2.1");
         assert_eq!(value.len(), 64);
         assert!(!value.contains("aa-bb"));
+    }
+
+    #[test]
+    fn ipv6_link_local_detection_works_on_rust_1_75() {
+        assert!(is_ipv6_unicast_link_local("fe80::1".parse().unwrap()));
+        assert!(is_ipv6_unicast_link_local("febf::1".parse().unwrap()));
+        assert!(!is_ipv6_unicast_link_local("fec0::1".parse().unwrap()));
+        assert!(!is_ipv6_unicast_link_local("2001:db8::1".parse().unwrap()));
     }
 
     #[test]
