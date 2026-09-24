@@ -198,8 +198,8 @@ class SupportHostHealth {
   factory SupportHostHealth.fromJson(Map<String, dynamic> json) {
     final lastCriticalAt =
         DateTime.tryParse(json['last_critical_at']?.toString() ?? '');
-    final criticalAcknowledgedAt = DateTime.tryParse(
-        json['critical_acknowledged_at']?.toString() ?? '');
+    final criticalAcknowledgedAt =
+        DateTime.tryParse(json['critical_acknowledged_at']?.toString() ?? '');
     final criticalUnacknowledged = lastCriticalAt != null &&
         (criticalAcknowledgedAt == null ||
             criticalAcknowledgedAt.isBefore(lastCriticalAt));

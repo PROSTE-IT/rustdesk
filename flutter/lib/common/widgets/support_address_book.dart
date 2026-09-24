@@ -955,8 +955,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
       if (health.memoryAlert) _deviceBadge('RAM >80%', error),
       if (health.diskAlerts.isNotEmpty) _deviceBadge('Dysk >90%', error),
       if (health.pendingReboot) _deviceBadge('Wymaga restartu', Colors.orange),
-      if (health.criticalAlert)
-        _deviceBadge('Critical', Colors.deepOrange),
+      if (health.criticalAlert) _deviceBadge('Critical', Colors.deepOrange),
     ];
   }
 
