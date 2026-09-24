@@ -77,4 +77,42 @@ void main() {
     expect(recentCritical.hasAlert, isTrue);
     expect(resourceAlert.hasAlert, isTrue);
   });
+
+  test('parses both Helpdesk installer formats for host migration', () {
+    final update = SupportClientUpdate.fromJson({
+      'channel': 'windows_helpdesk',
+      'build_uuid': '11111111-1111-1111-1111-111111111111',
+      'version': '1.4.9-pit.21',
+      'installers': {
+        'exe': {
+          'filename': 'proste_IT_Helpdesk.exe',
+          'size': 24000000,
+          'download_url': 'https://rdbk.example/helpdesk.exe',
+        },
+        'msi': {
+          'filename': 'proste_IT_Helpdesk.msi',
+          'size': 25000000,
+          'download_url': 'https://rdbk.example/helpdesk.msi',
+        },
+      },
+    });
+
+    expect(update.exeInstaller?.filename, 'proste_IT_Helpdesk.exe');
+    expect(update.exeInstaller?.size, 24000000);
+    expect(update.msiInstaller?.filename, 'proste_IT_Helpdesk.msi');
+    expect(update.msiInstaller?.size, 25000000);
+  });
+
+  test('parses the staged migration plan returned by RDBK', () {
+    final dispatch = SupportLegacyMigrationDispatch.fromJson({
+      'id': '22222222-2222-2222-2222-222222222222',
+      'migration_script_url': 'https://rdbk.example/legacy.ps1',
+      'staged_migration_script_url':
+          'https://rdbk.example/legacy.ps1?staged=1',
+      'verification_url': 'https://rdbk.example/status',
+    });
+
+    expect(dispatch.attemptId, '22222222-2222-2222-2222-222222222222');
+    expect(dispatch.stagedMigrationScriptUrl, contains('staged=1'));
+  });
 }

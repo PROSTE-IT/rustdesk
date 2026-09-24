@@ -589,6 +589,28 @@ class SupportPresence {
   bool get occupied => sessions.isNotEmpty;
 }
 
+class SupportClientUpdateInstaller {
+  final String filename;
+  final int? size;
+  final String downloadUrl;
+
+  const SupportClientUpdateInstaller({
+    required this.filename,
+    required this.size,
+    required this.downloadUrl,
+  });
+
+  factory SupportClientUpdateInstaller.fromJson(Map<String, dynamic> json) {
+    return SupportClientUpdateInstaller(
+      filename: json['filename']?.toString() ?? '',
+      size: int.tryParse(json['size']?.toString() ?? ''),
+      downloadUrl: json['download_url']?.toString() ?? '',
+    );
+  }
+
+  bool get isUsable => filename.isNotEmpty && downloadUrl.isNotEmpty;
+}
+
 class SupportClientUpdate {
   final String channel;
   final String buildUuid;
@@ -599,6 +621,7 @@ class SupportClientUpdate {
   final int? size;
   final String downloadUrl;
   final DateTime? markedAt;
+  final Map<String, SupportClientUpdateInstaller> installers;
 
   const SupportClientUpdate({
     required this.channel,
@@ -610,9 +633,22 @@ class SupportClientUpdate {
     required this.size,
     required this.downloadUrl,
     required this.markedAt,
+    required this.installers,
   });
 
   factory SupportClientUpdate.fromJson(Map<String, dynamic> json) {
+    final rawInstallers = json['installers'];
+    final installers = <String, SupportClientUpdateInstaller>{};
+    if (rawInstallers is Map) {
+      for (final entry in rawInstallers.entries) {
+        if (entry.value is Map) {
+          installers[entry.key.toString().toLowerCase()] =
+              SupportClientUpdateInstaller.fromJson(
+            Map<String, dynamic>.from(entry.value as Map),
+          );
+        }
+      }
+    }
     return SupportClientUpdate(
       channel: json['channel']?.toString() ?? '',
       buildUuid: json['build_uuid']?.toString() ?? '',
@@ -623,22 +659,33 @@ class SupportClientUpdate {
       size: int.tryParse(json['size']?.toString() ?? ''),
       downloadUrl: json['download_url']?.toString() ?? '',
       markedAt: DateTime.tryParse(json['marked_at']?.toString() ?? ''),
+      installers: Map.unmodifiable(installers),
     );
   }
+
+  SupportClientUpdateInstaller? get exeInstaller => installers['exe'];
+  SupportClientUpdateInstaller? get msiInstaller => installers['msi'];
 }
 
 class SupportLegacyMigrationDispatch {
+  final String attemptId;
   final String migrationScriptUrl;
+  final String stagedMigrationScriptUrl;
   final String verificationUrl;
 
   const SupportLegacyMigrationDispatch({
+    required this.attemptId,
     required this.migrationScriptUrl,
+    required this.stagedMigrationScriptUrl,
     required this.verificationUrl,
   });
 
   factory SupportLegacyMigrationDispatch.fromJson(Map<String, dynamic> json) {
     return SupportLegacyMigrationDispatch(
+      attemptId: json['id']?.toString() ?? '',
       migrationScriptUrl: json['migration_script_url']?.toString() ?? '',
+      stagedMigrationScriptUrl:
+          json['staged_migration_script_url']?.toString() ?? '',
       verificationUrl: json['verification_url']?.toString() ?? '',
     );
   }
@@ -1073,11 +1120,17 @@ class SupportAddressBookModel with ChangeNotifier {
     }
     final update =
         SupportClientUpdate.fromJson(Map<String, dynamic>.from(body));
+    final exe = update.exeInstaller;
+    final msi = update.msiInstaller;
     if (update.channel != 'windows_helpdesk' ||
         update.buildUuid.isEmpty ||
         update.version.isEmpty ||
-        !update.filename.toLowerCase().endsWith('.msi') ||
-        update.downloadUrl.isEmpty) {
+        exe == null ||
+        !exe.isUsable ||
+        !exe.filename.toLowerCase().endsWith('.exe') ||
+        msi == null ||
+        !msi.isUsable ||
+        !msi.filename.toLowerCase().endsWith('.msi')) {
       throw const SupportAddressBookException(
           'Serwer zwrócił nieprawidłowy pakiet migracyjny.');
     }
@@ -1109,12 +1162,35 @@ class SupportAddressBookModel with ChangeNotifier {
     final dispatch = SupportLegacyMigrationDispatch.fromJson(
       Map<String, dynamic>.from(body),
     );
-    if (dispatch.migrationScriptUrl.isEmpty ||
+    if (dispatch.attemptId.isEmpty ||
+        dispatch.migrationScriptUrl.isEmpty ||
+        dispatch.stagedMigrationScriptUrl.isEmpty ||
         dispatch.verificationUrl.isEmpty) {
       throw const SupportAddressBookException(
           'Serwer nie przygotował bezpiecznego skryptu migracji.');
     }
     return dispatch;
+  }
+
+  Future<void> reportLegacyMigrationFailure(
+    SupportLegacyMigrationDispatch dispatch,
+    Object error,
+  ) async {
+    var message = error.toString();
+    if (message.length > 1000) {
+      message = message.substring(0, 1000);
+    }
+    final response = await http
+        .post(
+          Uri.parse(dispatch.verificationUrl),
+          headers: _headers(authenticated: false),
+          body: jsonEncode({
+            'status': 'failed',
+            'error': message,
+          }),
+        )
+        .timeout(const Duration(seconds: 10));
+    _requireSuccess(response);
   }
 
   Future<void> refresh({bool silent = false}) async {

@@ -1,18 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter_hbb/models/legacy_host_migration.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  String decodePowerShell(String encoded) {
-    final bytes = base64Decode(encoded);
-    final codeUnits = <int>[
-      for (var index = 0; index < bytes.length; index += 2)
-        bytes[index] | (bytes[index + 1] << 8),
-    ];
-    return String.fromCharCodes(codeUnits);
-  }
-
   test('reserves only one automatic prompt per remote session', () {
     final coordinator = LegacyHostMigrationCoordinator();
 
@@ -80,38 +69,15 @@ void main() {
     expect(coordinator.reserveAutoPrompt('123:1'), isTrue);
   });
 
-  test('builds a short bootstrap for the signed RDBK migration plan', () {
-    final script = buildLegacyHostMigrationPowerShell(
-      migrationScriptUrl: "https://rdbk.example/download/a'b/script.ps1",
-    );
-
-    expect(script, contains('-Verb RunAs'));
-    expect(script, contains('-EncodedCommand'));
-    expect(script, contains('-Wait -PassThru'));
-    expect(script, contains('System.Windows.MessageBox'));
-    expect(script, isNot(contains('msiexec.exe')));
-    expect(script, isNot(contains('--uninstall')));
-    expect(script, isNot(contains('Invoke-WebRequest')));
-
-    final nestedEncoded =
-        RegExp(r"\$e='([^']+)'").firstMatch(script)!.group(1)!;
-    final elevatedScript = decodePowerShell(nestedEncoded);
-    expect(
-      elevatedScript,
-      contains("https://rdbk.example/download/a''b/script.ps1"),
-    );
-    expect(elevatedScript, contains('Invoke-WebRequest'));
-    expect(elevatedScript, contains(r'$env:ProgramData'));
-    expect(elevatedScript, contains('-Elevated'));
-    expect(elevatedScript, isNot(contains(r'$env:TEMP')));
-
+  test('builds a short command for an already transferred migration plan', () {
     final command = buildLegacyHostMigrationCommand(
-      migrationScriptUrl:
-          'https://rdbk.example/download/${List.filled(600, 'a').join()}/script.ps1',
+      remoteScriptPath:
+          r'C:\Users\Public\Documents\PROSTEIT-HostMigration-123.ps1',
     );
-    expect(command, contains('-Command "'));
-    expect(command, contains('-Verb RunAs'));
-    expect(command, isNot(contains('https://rdbk.example')));
-    expect(command.length, lessThan(8191));
+    expect(command, contains('-File "'));
+    expect(command, contains('PROSTEIT-HostMigration-123.ps1'));
+    expect(command, isNot(contains('Invoke-WebRequest')));
+    expect(command, isNot(contains('-EncodedCommand')));
+    expect(command.length, lessThan(256));
   });
 }

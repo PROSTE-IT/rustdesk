@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,6 +22,7 @@ import 'package:window_size/window_size.dart' as window_size;
 
 import '../../common.dart';
 import '../../models/model.dart';
+import '../../models/file_model.dart';
 import '../../models/legacy_host_migration.dart';
 import '../../models/platform_model.dart';
 import '../../models/support_address_book_model.dart';
@@ -1780,6 +1782,7 @@ class _LegacyHostMigrationButtonState
         versionCmp(pi.version, '1.4.9') < 0 &&
         !widget.ffi.ffiModel.viewOnly &&
         widget.ffi.ffiModel.keyboard &&
+        widget.ffi.ffiModel.permissions['file'] != false &&
         supportAddressBookModel.isAuthenticated;
   }
 
@@ -1846,7 +1849,8 @@ class _LegacyHostMigrationButtonState
               content: Text(
                 'Host ${widget.id} używa wersji '
                 '${widget.ffi.ffiModel.pi.version}, starszej niż 1.4.9. '
-                'RDBK rozpozna sposób instalacji i dobierze EXE albo MSI. '
+                'Support skopiuje aktualny, podpisany Helpdesk bezpośrednio '
+                'na hosta. RDBK rozpozna sposób instalacji i dobierze EXE albo MSI. '
                 'Przed zmianą sprawdzi podpis oraz utworzy kopię awaryjną. '
                 'Stara wersja nie zostanie najpierw odinstalowana, a przy braku '
                 'potwierdzenia połączenia zostanie przywrócona. Połączenie '
@@ -1873,24 +1877,36 @@ class _LegacyHostMigrationButtonState
     if (!confirmed || !mounted) return;
     if (!legacyHostMigrationCoordinator.tryBegin(_sessionKey)) return;
     setState(() {});
+    SupportLegacyMigrationDispatch? dispatch;
     try {
       final update = await supportAddressBookModel.helpdeskMigrationUpdate();
-      final dispatch = await supportAddressBookModel.recordLegacyMigration(
+      dispatch = await supportAddressBookModel.recordLegacyMigration(
         rustdeskId: widget.id,
         fromVersion: widget.ffi.ffiModel.pi.version,
         update: update,
       );
-      await _sendMigrationCommand(dispatch.migrationScriptUrl);
+      final remoteScriptPath = await _stageMigrationOnHost(update, dispatch);
+      await _sendMigrationCommand(remoteScriptPath);
       legacyHostMigrationCoordinator.markDispatched(_sessionKey);
       if (!mounted) return;
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-              'Polecenie wysłane. RDBK dobierze EXE lub MSI, a w razie niepowodzenia zachowa albo przywróci poprzednią wersję.'),
+              'Pliki zostały skopiowane i polecenie uruchomione. Host dobierze EXE lub MSI, a w razie niepowodzenia zachowa albo przywróci poprzednią wersję.'),
         ),
       );
     } catch (error) {
+      if (dispatch != null) {
+        try {
+          await supportAddressBookModel.reportLegacyMigrationFailure(
+            dispatch,
+            error,
+          );
+        } catch (reportError) {
+          debugPrint('Failed to report legacy migration error: $reportError');
+        }
+      }
       legacyHostMigrationCoordinator.markFailed(_sessionKey);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1901,9 +1917,177 @@ class _LegacyHostMigrationButtonState
     }
   }
 
-  Future<void> _sendMigrationCommand(String migrationScriptUrl) async {
+  Future<String> _stageMigrationOnHost(
+    SupportClientUpdate update,
+    SupportLegacyMigrationDispatch dispatch,
+  ) async {
+    final exe = update.exeInstaller!;
+    final msi = update.msiInstaller!;
+    final safeAttempt = dispatch.attemptId.replaceAll(
+      RegExp(r'[^0-9a-fA-F-]'),
+      '',
+    );
+    if (safeAttempt.isEmpty) {
+      throw const SupportAddressBookException(
+          'RDBK zwrócił nieprawidłowy identyfikator migracji.');
+    }
+    final stem = 'PROSTEIT-HostMigration-$safeAttempt';
+    final remoteHome = widget.ffi.fileModel.remoteController.homePath;
+    final driveMatch = RegExp(r'^([a-zA-Z]:)').firstMatch(remoteHome);
+    final systemDrive = driveMatch?.group(1) ?? 'C:';
+    final remoteDirectory = '$systemDrive\\Users\\Public\\Documents';
+
+    try {
+      await widget.ffi.fileModel.fileFetcher
+          .fetchDirectory(remoteDirectory, false, false)
+          .timeout(const Duration(seconds: 15));
+    } catch (error) {
+      throw SupportAddressBookException(
+        'Nie można otworzyć katalogu transferowego hosta '
+        '($remoteDirectory): $error',
+      );
+    }
+
+    final localDirectory =
+        await Directory.systemTemp.createTemp('prosteit-host-migration-');
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
+    try {
+      final localExe = File('${localDirectory.path}\\$stem.exe');
+      final localMsi = File('${localDirectory.path}\\$stem.msi');
+      final localScript = File('${localDirectory.path}\\$stem.ps1');
+      await Future.wait([
+        _downloadMigrationFile(
+          client,
+          exe.downloadUrl,
+          localExe,
+          expectedSize: exe.size,
+          maxSize: 1024 * 1024 * 1024,
+        ),
+        _downloadMigrationFile(
+          client,
+          msi.downloadUrl,
+          localMsi,
+          expectedSize: msi.size,
+          maxSize: 1024 * 1024 * 1024,
+        ),
+        _downloadMigrationFile(
+          client,
+          dispatch.stagedMigrationScriptUrl,
+          localScript,
+          minimumSize: 1000,
+          maxSize: 1024 * 1024,
+        ),
+      ]);
+
+      for (final file in [localExe, localMsi, localScript]) {
+        await _transferMigrationFile(
+          file,
+          '$remoteDirectory\\${file.uri.pathSegments.last}',
+        );
+      }
+      return '$remoteDirectory\\$stem.ps1';
+    } finally {
+      client.close(force: true);
+      try {
+        await localDirectory.delete(recursive: true);
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _downloadMigrationFile(
+    HttpClient client,
+    String url,
+    File destination, {
+    int? expectedSize,
+    int minimumSize = 1,
+    required int maxSize,
+  }) async {
+    final request = await client.getUrl(Uri.parse(url)).timeout(
+          const Duration(seconds: 20),
+        );
+    final response = await request.close().timeout(const Duration(seconds: 30));
+    if (response.statusCode != HttpStatus.ok) {
+      throw SupportAddressBookException(
+        'Pobieranie ${destination.uri.pathSegments.last} zakończyło się kodem '
+        'HTTP ${response.statusCode}.',
+      );
+    }
+    final sink = destination.openWrite();
+    var received = 0;
+    try {
+      await for (final chunk
+          in response.timeout(const Duration(seconds: 60))) {
+        received += chunk.length;
+        if (received > maxSize) {
+          throw const SupportAddressBookException(
+              'Pobrany plik przekracza bezpieczny limit rozmiaru.');
+        }
+        sink.add(chunk);
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+    if (received < minimumSize ||
+        (expectedSize != null && expectedSize > 0 && received != expectedSize)) {
+      throw SupportAddressBookException(
+        'Rozmiar ${destination.uri.pathSegments.last} nie zgadza się z RDBK.',
+      );
+    }
+  }
+
+  Future<void> _transferMigrationFile(File file, String remotePath) async {
+    if (widget.ffi.closed) {
+      throw const SupportAddressBookException(
+          'Sesja została zamknięta przed transferem aktualizacji.');
+    }
+    final stat = await file.stat();
+    final entry = Entry()
+      ..entryType = 4
+      ..modifiedTime = stat.modified.millisecondsSinceEpoch ~/ 1000
+      ..name = file.uri.pathSegments.last
+      ..path = file.path
+      ..size = stat.size;
+    final controller = widget.ffi.fileModel.jobController;
+    final jobId = controller.addTransferJob(entry, false);
+    await bind.sessionSendFiles(
+      sessionId: widget.ffi.sessionId,
+      actId: jobId,
+      path: file.path,
+      to: remotePath,
+      fileNum: 0,
+      includeHidden: false,
+      isRemote: false,
+      isDir: false,
+    );
+    final deadline = DateTime.now().add(const Duration(minutes: 10));
+    while (DateTime.now().isBefore(deadline)) {
+      if (widget.ffi.closed) {
+        throw const SupportAddressBookException(
+            'Sesja została zamknięta podczas transferu aktualizacji.');
+      }
+      final index = controller.getJob(jobId);
+      if (index < 0) {
+        throw const SupportAddressBookException(
+            'Nie udało się potwierdzić transferu aktualizacji.');
+      }
+      final job = controller.jobTable[index];
+      if (job.state == JobState.done) return;
+      if (job.state == JobState.error) {
+        throw SupportAddressBookException(
+          'Transfer ${entry.name} nie powiódł się: ${job.err}',
+        );
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    await controller.cancelJob(jobId);
+    throw SupportAddressBookException(
+        'Przekroczono czas oczekiwania na transfer ${entry.name}.');
+  }
+
+  Future<void> _sendMigrationCommand(String remoteScriptPath) async {
     final command = buildLegacyHostMigrationCommand(
-      migrationScriptUrl: migrationScriptUrl,
+      remoteScriptPath: remoteScriptPath,
     );
     bind.sessionInputKey(
       sessionId: widget.ffi.sessionId,
@@ -1915,17 +2099,13 @@ class _LegacyHostMigrationButtonState
       shift: false,
       command: true,
     );
-    // Older hosts can need a moment to render the Run dialog. Sending the
-    // encoded command too early makes it disappear into the remote desktop as
-    // ordinary keystrokes, with no error visible to the technician.
+    // Older hosts can need a moment to render the Run dialog.
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     bind.sessionInputString(
       sessionId: widget.ffi.sessionId,
       value: command,
     );
-    // Give the legacy peer time to process the long encoded command before
-    // pressing Enter.
-    await Future<void>.delayed(const Duration(milliseconds: 1000));
+    await Future<void>.delayed(const Duration(milliseconds: 400));
     bind.sessionInputKey(
       sessionId: widget.ffi.sessionId,
       name: 'VK_RETURN',
