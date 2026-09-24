@@ -107,8 +107,7 @@ void main() {
     final dispatch = SupportLegacyMigrationDispatch.fromJson({
       'id': '22222222-2222-2222-2222-222222222222',
       'migration_script_url': 'https://rdbk.example/legacy.ps1',
-      'staged_migration_script_url':
-          'https://rdbk.example/legacy.ps1?staged=1',
+      'staged_migration_script_url': 'https://rdbk.example/legacy.ps1?staged=1',
       'verification_url': 'https://rdbk.example/status',
     });
 

@@ -1950,7 +1950,8 @@ class _LegacyHostMigrationButtonState
 
     final localDirectory =
         await Directory.systemTemp.createTemp('prosteit-host-migration-');
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 20);
     try {
       final localExe = File('${localDirectory.path}\\$stem.exe');
       final localMsi = File('${localDirectory.path}\\$stem.msi');
@@ -2015,8 +2016,7 @@ class _LegacyHostMigrationButtonState
     final sink = destination.openWrite();
     var received = 0;
     try {
-      await for (final chunk
-          in response.timeout(const Duration(seconds: 60))) {
+      await for (final chunk in response.timeout(const Duration(seconds: 60))) {
         received += chunk.length;
         if (received > maxSize) {
           throw const SupportAddressBookException(
@@ -2029,7 +2029,9 @@ class _LegacyHostMigrationButtonState
       await sink.close();
     }
     if (received < minimumSize ||
-        (expectedSize != null && expectedSize > 0 && received != expectedSize)) {
+        (expectedSize != null &&
+            expectedSize > 0 &&
+            received != expectedSize)) {
       throw SupportAddressBookException(
         'Rozmiar ${destination.uri.pathSegments.last} nie zgadza się z RDBK.',
       );
