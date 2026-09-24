@@ -28,8 +28,8 @@ void main() {
     final coordinator = LegacyHostMigrationCoordinator();
     final startedAt = DateTime.utc(2026, 9, 24, 10);
 
-    expect(coordinator.autoPromptDelayRemaining('123:1', now: startedAt),
-        isNull);
+    expect(
+        coordinator.autoPromptDelayRemaining('123:1', now: startedAt), isNull);
     coordinator.noteTechnicianInput('123:1', at: startedAt);
     expect(
       coordinator.autoPromptDelayRemaining(

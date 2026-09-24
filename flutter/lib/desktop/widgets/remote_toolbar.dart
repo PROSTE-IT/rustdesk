@@ -1801,8 +1801,7 @@ class _LegacyHostMigrationButtonState
           ? 'Polecenie instalacji nowego Helpdeska zostało wysłane do hosta'
           : 'Host ma RustDesk ${widget.ffi.ffiModel.pi.version}; uruchom migrację do wersji zarządzanej',
       active: !_started,
-      onPressed:
-          _busy || _started ? null : () => _promptAndStart(manual: true),
+      onPressed: _busy || _started ? null : () => _promptAndStart(manual: true),
     );
   }
 
@@ -1810,8 +1809,8 @@ class _LegacyHostMigrationButtonState
     _autoPromptTimer?.cancel();
     _autoPromptTimer = null;
     if (!mounted || !_eligible) return;
-    final remaining = legacyHostMigrationCoordinator
-        .autoPromptDelayRemaining(_sessionKey);
+    final remaining =
+        legacyHostMigrationCoordinator.autoPromptDelayRemaining(_sessionKey);
     if (remaining == null) return;
     _autoPromptTimer = Timer(remaining, _showAutoPromptWhenReady);
   }
@@ -1819,8 +1818,8 @@ class _LegacyHostMigrationButtonState
   void _showAutoPromptWhenReady() {
     _autoPromptTimer = null;
     if (!mounted || !_eligible) return;
-    final remaining = legacyHostMigrationCoordinator
-        .autoPromptDelayRemaining(_sessionKey);
+    final remaining =
+        legacyHostMigrationCoordinator.autoPromptDelayRemaining(_sessionKey);
     if (remaining == null) return;
     if (remaining > Duration.zero) {
       _autoPromptTimer = Timer(remaining, _showAutoPromptWhenReady);
