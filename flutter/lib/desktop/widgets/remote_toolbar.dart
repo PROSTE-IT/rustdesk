@@ -1846,9 +1846,12 @@ class _LegacyHostMigrationButtonState
               content: Text(
                 'Host ${widget.id} używa wersji '
                 '${widget.ffi.ffiModel.pi.version}, starszej niż 1.4.9. '
-                'Support pobierze podpisany instalator Helpdesk, sprawdzi podpis '
-                'i uruchomi instalację. Technik musi jedynie zaakceptować okno UAC, '
-                'jeżeli pojawi się na zdalnym komputerze.',
+                'RDBK rozpozna sposób instalacji i dobierze EXE albo MSI. '
+                'Przed zmianą sprawdzi podpis oraz utworzy kopię awaryjną. '
+                'Stara wersja nie zostanie najpierw odinstalowana, a przy braku '
+                'potwierdzenia połączenia zostanie przywrócona. Połączenie '
+                'może przerwać się na kilkadziesiąt sekund. Technik musi jedynie '
+                'zaakceptować okno UAC, jeżeli pojawi się na hoście.',
               ),
               actions: [
                 TextButton(
@@ -1872,19 +1875,19 @@ class _LegacyHostMigrationButtonState
     setState(() {});
     try {
       final update = await supportAddressBookModel.helpdeskMigrationUpdate();
-      await supportAddressBookModel.recordLegacyMigration(
+      final dispatch = await supportAddressBookModel.recordLegacyMigration(
         rustdeskId: widget.id,
         fromVersion: widget.ffi.ffiModel.pi.version,
         update: update,
       );
-      await _sendMigrationCommand(update);
+      await _sendMigrationCommand(dispatch.migrationScriptUrl);
       legacyHostMigrationCoordinator.markDispatched(_sessionKey);
       if (!mounted) return;
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-              'Polecenie wysłane. Na hoście powinno być widoczne okno pobierania, pasek instalacji i ewentualny monit UAC.'),
+              'Polecenie wysłane. RDBK dobierze EXE lub MSI, a w razie niepowodzenia zachowa albo przywróci poprzednią wersję.'),
         ),
       );
     } catch (error) {
@@ -1898,10 +1901,9 @@ class _LegacyHostMigrationButtonState
     }
   }
 
-  Future<void> _sendMigrationCommand(SupportClientUpdate update) async {
+  Future<void> _sendMigrationCommand(String migrationScriptUrl) async {
     final command = buildLegacyHostMigrationCommand(
-      downloadUrl: update.downloadUrl,
-      signerSubject: supportWindowsSignerSubject,
+      migrationScriptUrl: migrationScriptUrl,
     );
     bind.sessionInputKey(
       sessionId: widget.ffi.sessionId,

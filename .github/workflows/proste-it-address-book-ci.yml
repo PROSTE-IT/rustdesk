@@ -13,6 +13,7 @@ on:
       - src/ipc.rs
       - src/updater.rs
       - src/rdbk_host_agent.rs
+      - src/platform/windows.rs
       - src/lib.rs
       - src/rendezvous_mediator.rs
       - flutter/lib/common.dart
@@ -94,6 +95,7 @@ jobs:
           rustfmt --edition 2021 --check
           src/updater.rs
           src/rdbk_host_agent.rs
+          src/platform/windows.rs
 
       - name: Analyze address book models
         working-directory: flutter

@@ -3254,6 +3254,131 @@ fn get_directory_size_kb(path: &str) -> u64 {
     total_size / 1024
 }
 
+#[derive(Debug)]
+struct ManagedSelfUpdateBackup {
+    root: PathBuf,
+    files: PathBuf,
+    registry: PathBuf,
+}
+
+fn robocopy_succeeded(status: &std::process::ExitStatus) -> bool {
+    matches!(status.code(), Some(0..=7))
+}
+
+fn create_managed_self_update_backup(
+    path: &str,
+    subkey: &str,
+) -> ResultType<ManagedSelfUpdateBackup> {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "rustdesk-managed-update-rollback-{}-{unique}",
+        std::process::id()
+    ));
+    let files = root.join("installation");
+    let registry = root.join("uninstall.reg");
+    fs::create_dir_all(&root)?;
+    let copy_status = std::process::Command::new("robocopy.exe")
+        .arg(path)
+        .arg(&files)
+        .args([
+            "/E",
+            "/COPY:DAT",
+            "/DCOPY:DAT",
+            "/R:1",
+            "/W:1",
+            "/NFL",
+            "/NDL",
+            "/NJH",
+            "/NJS",
+        ])
+        .status()?;
+    if !robocopy_succeeded(&copy_status) {
+        fs::remove_dir_all(&root).ok();
+        bail!("Nie udało się utworzyć pełnej kopii awaryjnej instalacji.");
+    }
+    let export_status = std::process::Command::new("reg.exe")
+        .args(["export", subkey])
+        .arg(&registry)
+        .arg("/y")
+        .status()?;
+    if !export_status.success() {
+        fs::remove_dir_all(&root).ok();
+        bail!("Nie udało się zapisać kopii ustawień instalacji.");
+    }
+    Ok(ManagedSelfUpdateBackup {
+        root,
+        files,
+        registry,
+    })
+}
+
+fn restore_managed_self_update(
+    backup: &ManagedSelfUpdateBackup,
+    app_name: &str,
+    path: &str,
+    exe: &str,
+) -> ResultType<()> {
+    let app_exe = format!("{app_name}.exe");
+    let pid_filter = format!("PID ne {}", get_current_pid());
+    std::process::Command::new("sc.exe")
+        .args(["stop", app_name])
+        .status()
+        .ok();
+    std::process::Command::new("taskkill.exe")
+        .args(["/F", "/FI", &pid_filter, "/IM", &app_exe])
+        .status()
+        .ok();
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    let copy_status = std::process::Command::new("robocopy.exe")
+        .arg(&backup.files)
+        .arg(path)
+        .args([
+            "/E",
+            "/COPY:DAT",
+            "/DCOPY:DAT",
+            "/R:1",
+            "/W:1",
+            "/NFL",
+            "/NDL",
+            "/NJH",
+            "/NJS",
+        ])
+        .status()?;
+    if !robocopy_succeeded(&copy_status) {
+        bail!("Nie udało się odtworzyć plików z kopii awaryjnej.");
+    }
+    if !std::process::Command::new("reg.exe")
+        .arg("import")
+        .arg(&backup.registry)
+        .status()?
+        .success()
+    {
+        bail!("Nie udało się odtworzyć ustawień instalacji.");
+    }
+    let service_path = format!("\"{exe}\" --service");
+    std::process::Command::new("sc.exe")
+        .args([
+            "config",
+            app_name,
+            "binPath=",
+            &service_path,
+            "start=",
+            "auto",
+        ])
+        .status()?;
+    std::process::Command::new("sc.exe")
+        .args(["start", app_name])
+        .status()
+        .ok();
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    if !is_self_service_running() {
+        bail!("Nie udało się uruchomić usługi po przywróceniu kopii.");
+    }
+    Ok(())
+}
+
 pub fn update_me(debug: bool) -> ResultType<()> {
     let app_name = crate::get_app_name();
     let src_exe = std::env::current_exe()?.to_string_lossy().to_string();
@@ -3262,6 +3387,11 @@ pub fn update_me(debug: bool) -> ResultType<()> {
     if !is_installed {
         bail!("{} is not installed.", &app_name);
     }
+    let is_msi = is_msi_installed().ok();
+    let protect_managed_self_install = option_env!("RDBK_HOST_AGENT")
+        .unwrap_or("")
+        .eq_ignore_ascii_case("true")
+        && is_msi == Some(false);
 
     let app_exe_name = &format!("{}.exe", &app_name);
     let main_window_pids =
@@ -3299,8 +3429,6 @@ pub fn update_me(debug: bool) -> ResultType<()> {
     let build_date = crate::BUILD_DATE;
     // Use the icon in the previous installation directory if possible.
     let display_icon = get_custom_icon("", &exe).unwrap_or(exe.to_string());
-
-    let is_msi = is_msi_installed().ok();
 
     fn get_reg_cmd(
         subkey: &str,
@@ -3474,7 +3602,51 @@ taskkill /F /IM {app_name}.exe{filter}
         }),
     };
 
-    run_cmds(cmds, debug, "update")?;
+    let rollback_backup = if protect_managed_self_install {
+        Some(create_managed_self_update_backup(&path, &subkey)?)
+    } else {
+        None
+    };
+
+    let update_result = run_cmds(cmds, debug, "update").and_then(|_| {
+        if protect_managed_self_install {
+            let source_size = fs::metadata(&src_exe)?.len();
+            let installed_size = fs::metadata(&exe)?.len();
+            if source_size != installed_size {
+                bail!("Plik zainstalowany po aktualizacji ma nieprawidłowy rozmiar.");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2000));
+            if is_service_running && !is_self_service_running() {
+                bail!("Usługa nie uruchomiła się po aktualizacji.");
+            }
+        }
+        Ok(())
+    });
+
+    if let Err(update_error) = update_result {
+        if let Some(backup) = rollback_backup.as_ref() {
+            log::error!(
+                "Managed self-update failed, restoring {:?}: {}",
+                backup,
+                update_error
+            );
+            if let Err(rollback_error) = restore_managed_self_update(backup, &app_name, &path, &exe)
+            {
+                bail!(
+                    "Aktualizacja nie powiodła się ({update_error}); nie udało się przywrócić poprzedniej usługi ({rollback_error}). Kopia pozostaje w {:?}.",
+                    backup.root
+                );
+            }
+            fs::remove_dir_all(&backup.root).ok();
+            bail!(
+                "Aktualizacja nie powiodła się ({update_error}); poprzednia wersja została przywrócona."
+            );
+        }
+        return Err(update_error);
+    }
+    if let Some(backup) = rollback_backup {
+        fs::remove_dir_all(backup.root).ok();
+    }
 
     std::thread::sleep(std::time::Duration::from_millis(2000));
     log::info!("Update completed.");

@@ -21,8 +21,6 @@ const managedWindowsUpdateChannels = {
 const supportClientBuildUuid = String.fromEnvironment('RDBK_BUILD_UUID');
 const supportClientBuildRunId = int.fromEnvironment('RDBK_BUILD_RUN_ID');
 const supportClientVersion = String.fromEnvironment('RDBK_APP_VERSION');
-const supportWindowsSignerSubject =
-    String.fromEnvironment('RDBK_WINDOWS_SIGNER_SUBJECT');
 const _supportTechnicianDisplayNameOption = 'proste-it-technician-display-name';
 
 class SupportCustomer {
@@ -629,6 +627,23 @@ class SupportClientUpdate {
   }
 }
 
+class SupportLegacyMigrationDispatch {
+  final String migrationScriptUrl;
+  final String verificationUrl;
+
+  const SupportLegacyMigrationDispatch({
+    required this.migrationScriptUrl,
+    required this.verificationUrl,
+  });
+
+  factory SupportLegacyMigrationDispatch.fromJson(Map<String, dynamic> json) {
+    return SupportLegacyMigrationDispatch(
+      migrationScriptUrl: json['migration_script_url']?.toString() ?? '',
+      verificationUrl: json['verification_url']?.toString() ?? '',
+    );
+  }
+}
+
 class SupportAddressBookException implements Exception {
   final String message;
 
@@ -1069,7 +1084,7 @@ class SupportAddressBookModel with ChangeNotifier {
     return update;
   }
 
-  Future<void> recordLegacyMigration({
+  Future<SupportLegacyMigrationDispatch> recordLegacyMigration({
     required String rustdeskId,
     required String fromVersion,
     required SupportClientUpdate update,
@@ -1086,7 +1101,20 @@ class SupportAddressBookModel with ChangeNotifier {
           }),
         )
         .timeout(const Duration(seconds: 10));
-    _requireSuccess(response);
+    final body = _requireSuccess(response);
+    if (body is! Map) {
+      throw const SupportAddressBookException(
+          'Serwer zwrócił nieprawidłowe polecenie migracji.');
+    }
+    final dispatch = SupportLegacyMigrationDispatch.fromJson(
+      Map<String, dynamic>.from(body),
+    );
+    if (dispatch.migrationScriptUrl.isEmpty ||
+        dispatch.verificationUrl.isEmpty) {
+      throw const SupportAddressBookException(
+          'Serwer nie przygotował bezpiecznego skryptu migracji.');
+    }
+    return dispatch;
   }
 
   Future<void> refresh({bool silent = false}) async {

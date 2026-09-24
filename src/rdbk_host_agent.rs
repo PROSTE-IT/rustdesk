@@ -63,6 +63,20 @@ struct UpdateResponse {
     build_uuid: String,
     #[serde(default)]
     download_url: String,
+    #[serde(default)]
+    installers: UpdateInstallers,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct UpdateInstallers {
+    exe: Option<UpdateArtifact>,
+    msi: Option<UpdateArtifact>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateArtifact {
+    #[serde(default)]
+    download_url: String,
 }
 
 fn default_heartbeat_seconds() -> u64 {
@@ -407,14 +421,35 @@ fn check_managed_update(client: &Client, url: &str) -> hbb_common::ResultType<()
     let update: UpdateResponse = response.json()?;
     if !update.configured
         || !update.auto_update
-        || update.download_url.is_empty()
         || update.build_uuid.is_empty()
         || update.build_uuid == option_env!("RDBK_BUILD_UUID").unwrap_or("")
         || !is_newer_managed_version(&update.version, current_version())
     {
         return Ok(());
     }
-    crate::updater::install_support_update(update.download_url)
+    let use_msi = crate::platform::is_msi_installed()?;
+    let download_url = managed_update_download_url(&update, use_msi).ok_or_else(|| {
+        hbb_common::anyhow::anyhow!(
+            "RDBK nie udostępnił formatu aktualizacji zgodnego z instalacją hosta."
+        )
+    })?;
+    crate::updater::install_managed_host_update(download_url, use_msi)
+}
+
+fn managed_update_download_url(update: &UpdateResponse, use_msi: bool) -> Option<String> {
+    let artifact = if use_msi {
+        update.installers.msi.as_ref()
+    } else {
+        update.installers.exe.as_ref()
+    };
+    artifact
+        .map(|artifact| artifact.download_url.trim())
+        .filter(|url| !url.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            (use_msi && !update.download_url.trim().is_empty())
+                .then(|| update.download_url.trim().to_owned())
+        })
 }
 
 fn current_version() -> &'static str {
@@ -737,5 +772,40 @@ mod tests {
         assert!(is_newer_managed_version("1.5.0-pit.1", "1.4.9-pit.99"));
         assert!(!is_newer_managed_version("1.4.9-pit.9", "1.4.9-pit.20"));
         assert!(!is_newer_managed_version("1.4.9", "1.4.9-pit.1"));
+    }
+
+    #[test]
+    fn managed_update_selects_exe_for_self_install_and_msi_for_msi_install() {
+        let update: UpdateResponse = serde_json::from_value(serde_json::json!({
+            "download_url": "https://rdbk.example/legacy.msi",
+            "installers": {
+                "exe": {"download_url": "https://rdbk.example/current.exe"},
+                "msi": {"download_url": "https://rdbk.example/current.msi"}
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(
+            managed_update_download_url(&update, false).as_deref(),
+            Some("https://rdbk.example/current.exe")
+        );
+        assert_eq!(
+            managed_update_download_url(&update, true).as_deref(),
+            Some("https://rdbk.example/current.msi")
+        );
+    }
+
+    #[test]
+    fn managed_update_never_uses_legacy_msi_for_self_install() {
+        let update: UpdateResponse = serde_json::from_value(serde_json::json!({
+            "download_url": "https://rdbk.example/legacy.msi"
+        }))
+        .unwrap();
+
+        assert_eq!(managed_update_download_url(&update, false), None);
+        assert_eq!(
+            managed_update_download_url(&update, true).as_deref(),
+            Some("https://rdbk.example/legacy.msi")
+        );
     }
 }

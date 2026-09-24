@@ -51,6 +51,33 @@ pub fn stop_auto_update() {
 
 #[cfg(target_os = "windows")]
 pub fn install_support_update(download_url: String) -> ResultType<()> {
+    install_managed_windows_update(download_url, ManagedWindowsArtifact::Msi)
+}
+
+#[cfg(target_os = "windows")]
+pub fn install_managed_host_update(download_url: String, use_msi: bool) -> ResultType<()> {
+    install_managed_windows_update(
+        download_url,
+        if use_msi {
+            ManagedWindowsArtifact::Msi
+        } else {
+            ManagedWindowsArtifact::Exe
+        },
+    )
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ManagedWindowsArtifact {
+    Exe,
+    Msi,
+}
+
+#[cfg(target_os = "windows")]
+fn install_managed_windows_update(
+    download_url: String,
+    artifact: ManagedWindowsArtifact,
+) -> ResultType<()> {
     if !crate::platform::is_installed() || !crate::platform::windows::is_root() {
         bail!("Aktualizacja wymaga uruchomionej usługi systemowej.");
     }
@@ -58,13 +85,13 @@ pub fn install_support_update(download_url: String) -> ResultType<()> {
         bail!("Zakończ aktywne sesje przed aktualizacją.");
     }
 
-    let (installer, update_channel) = download_managed_msi(download_url)?;
+    let (installer, update_channel) = download_managed_windows_artifact(download_url, artifact)?;
     if !has_no_active_conns() {
         std::fs::remove_file(&installer).ok();
         bail!("Zakończ aktywne sesje przed aktualizacją.");
     }
 
-    let mut child = match spawn_managed_msi(&installer, true) {
+    let mut child = match spawn_managed_windows_update(&installer, artifact, true) {
         Ok(child) => child,
         Err(error) => {
             std::fs::remove_file(&installer).ok();
@@ -73,9 +100,10 @@ pub fn install_support_update(download_url: String) -> ResultType<()> {
     };
     let pid = child.id();
     log::info!(
-        "Managed update installer started, pid: {}, channel: {}, file: {:?}",
+        "Managed update started, pid: {}, channel: {}, type: {:?}, file: {:?}",
         pid,
         update_channel,
+        artifact,
         installer
     );
     std::thread::spawn(move || {
@@ -94,18 +122,20 @@ pub fn install_quick_support_as_helpdesk(download_url: String) -> ResultType<()>
         bail!("Aplikacja jest już zainstalowana.");
     }
 
-    let (installer, update_channel) = download_managed_msi(download_url)?;
+    let (installer, update_channel) =
+        download_managed_windows_artifact(download_url, ManagedWindowsArtifact::Msi)?;
     if update_channel != "windows_helpdesk" {
         std::fs::remove_file(&installer).ok();
         bail!("Quick Support może zainstalować wyłącznie profil Windows Helpdesk.");
     }
-    let mut child = match spawn_managed_msi(&installer, false) {
-        Ok(child) => child,
-        Err(error) => {
-            std::fs::remove_file(&installer).ok();
-            return Err(error);
-        }
-    };
+    let mut child =
+        match spawn_managed_windows_update(&installer, ManagedWindowsArtifact::Msi, false) {
+            Ok(child) => child,
+            Err(error) => {
+                std::fs::remove_file(&installer).ok();
+                return Err(error);
+            }
+        };
     let pid = child.id();
     log::info!(
         "Quick Support started Windows Helpdesk installer, pid: {}, file: {:?}",
@@ -125,7 +155,10 @@ pub fn install_quick_support_as_helpdesk(download_url: String) -> ResultType<()>
 }
 
 #[cfg(target_os = "windows")]
-fn download_managed_msi(download_url: String) -> ResultType<(PathBuf, String)> {
+fn download_managed_windows_artifact(
+    download_url: String,
+    artifact: ManagedWindowsArtifact,
+) -> ResultType<(PathBuf, String)> {
     let configured_base = option_env!("RDBK_API_URL").unwrap_or("").trim();
     if configured_base.is_empty() {
         bail!("W tym buildzie nie skonfigurowano serwera aktualizacji.");
@@ -171,8 +204,12 @@ fn download_managed_msi(download_url: String) -> ResultType<(PathBuf, String)> {
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_nanos();
+    let extension = match artifact {
+        ManagedWindowsArtifact::Exe => "exe",
+        ManagedWindowsArtifact::Msi => "msi",
+    };
     let installer = std::env::temp_dir().join(format!(
-        "proste-it-client-update-{}-{unique}.msi",
+        "rustdesk-managed-update-{}-{unique}.{extension}",
         std::process::id()
     ));
     let mut output = std::fs::OpenOptions::new()
@@ -190,11 +227,17 @@ fn download_managed_msi(download_url: String) -> ResultType<(PathBuf, String)> {
 
     let mut signature = [0_u8; 8];
     std::fs::File::open(&installer)?.read_exact(&mut signature)?;
-    if signature != [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1] {
+    let valid_magic = match artifact {
+        ManagedWindowsArtifact::Exe => signature[0..2] == [0x4D, 0x5A],
+        ManagedWindowsArtifact::Msi => {
+            signature == [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]
+        }
+    };
+    if !valid_magic {
         std::fs::remove_file(&installer).ok();
-        bail!("Pobrany plik nie jest instalatorem MSI.");
+        bail!("Pobrany plik ma nieprawidłowy format instalatora.");
     }
-    if let Err(error) = verify_managed_msi_signature(&installer) {
+    if let Err(error) = verify_managed_windows_signature(&installer) {
         std::fs::remove_file(&installer).ok();
         return Err(error);
     }
@@ -202,7 +245,7 @@ fn download_managed_msi(download_url: String) -> ResultType<(PathBuf, String)> {
 }
 
 #[cfg(target_os = "windows")]
-fn verify_managed_msi_signature(installer: &std::path::Path) -> ResultType<()> {
+fn verify_managed_windows_signature(installer: &std::path::Path) -> ResultType<()> {
     let system_root = std::env::var_os("SystemRoot")
         .ok_or_else(|| hbb_common::anyhow::anyhow!("Brak katalogu systemowego Windows."))?;
     let powershell = PathBuf::from(system_root)
@@ -214,7 +257,7 @@ fn verify_managed_msi_signature(installer: &std::path::Path) -> ResultType<()> {
         .unwrap_or("")
         .trim();
     let status = std::process::Command::new(powershell)
-        .env("RDBK_MSI_PATH", installer)
+        .env("RDBK_UPDATE_PATH", installer)
         .env("RDBK_SIGNER_SUBJECT", expected_subject)
         .args([
             "-NoLogo",
@@ -223,7 +266,7 @@ fn verify_managed_msi_signature(installer: &std::path::Path) -> ResultType<()> {
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            "$s=Get-AuthenticodeSignature -LiteralPath $env:RDBK_MSI_PATH;if($s.Status -ne 'Valid'){exit 2};if($env:RDBK_SIGNER_SUBJECT -and $s.SignerCertificate.Subject -notlike ('*'+$env:RDBK_SIGNER_SUBJECT+'*')){exit 3}",
+            "$s=Get-AuthenticodeSignature -LiteralPath $env:RDBK_UPDATE_PATH;if($s.Status -ne 'Valid'){exit 2};if($env:RDBK_SIGNER_SUBJECT -and $s.SignerCertificate.Subject -ne $env:RDBK_SIGNER_SUBJECT){exit 3}",
         ])
         .status()?;
     if !status.success() {
@@ -233,7 +276,16 @@ fn verify_managed_msi_signature(installer: &std::path::Path) -> ResultType<()> {
 }
 
 #[cfg(target_os = "windows")]
-fn spawn_managed_msi(installer: &std::path::Path, silent: bool) -> ResultType<std::process::Child> {
+fn spawn_managed_windows_update(
+    installer: &std::path::Path,
+    artifact: ManagedWindowsArtifact,
+    silent: bool,
+) -> ResultType<std::process::Child> {
+    if artifact == ManagedWindowsArtifact::Exe {
+        return Ok(std::process::Command::new(installer)
+            .arg("--update")
+            .spawn()?);
+    }
     let system_root = std::env::var_os("SystemRoot")
         .ok_or_else(|| hbb_common::anyhow::anyhow!("Brak katalogu systemowego Windows."))?;
     let msiexec = PathBuf::from(system_root)
