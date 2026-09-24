@@ -3545,6 +3545,7 @@ taskkill /F /IM {app_name}.exe{filter}
         sleep = if debug { "timeout 300" } else { "" },
     );
 
+    let restore_exe = exe.clone();
     let _restore_session_guard = crate::common::SimpleCallOnReturn {
         b: true,
         f: Box::new(move || {
@@ -3569,10 +3570,10 @@ taskkill /F /IM {app_name}.exe{filter}
                         // This issue primarily affects the MSI-installed version running in Administrator
                         // session during testing, but we check permissions here to be safe.
                         if is_root {
-                            allow_err!(run_exe_in_session(&exe, vec!["--tray"], s, true));
+                            allow_err!(run_exe_in_session(&restore_exe, vec!["--tray"], s, true));
                         } else if !spawned_non_root_tray {
                             // Only spawn once for non-root since run_exe_direct doesn't take session parameter
-                            allow_err!(run_exe_direct(&exe, vec!["--tray"], false));
+                            allow_err!(run_exe_direct(&restore_exe, vec!["--tray"], false));
                             spawned_non_root_tray = true;
                         }
                     }
@@ -3589,10 +3590,10 @@ taskkill /F /IM {app_name}.exe{filter}
                 for s in main_window_sessions.clone().into_iter() {
                     if s != 0 {
                         if is_root {
-                            allow_err!(run_exe_in_session(&exe, vec![], s, true));
+                            allow_err!(run_exe_in_session(&restore_exe, vec![], s, true));
                         } else if !spawned_non_root_main {
                             // Only spawn once for non-root since run_exe_direct doesn't take session parameter
-                            allow_err!(run_exe_direct(&exe, vec![], false));
+                            allow_err!(run_exe_direct(&restore_exe, vec![], false));
                             spawned_non_root_main = true;
                         }
                     }
