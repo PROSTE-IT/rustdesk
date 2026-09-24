@@ -1737,8 +1737,7 @@ class _LegacyHostMigrationButtonState
 
   bool get _busy => legacyHostMigrationCoordinator.isInFlight(_sessionKey);
 
-  bool get _started =>
-      legacyHostMigrationCoordinator.isDispatched(_sessionKey);
+  bool get _started => legacyHostMigrationCoordinator.isDispatched(_sessionKey);
 
   bool get _eligible {
     final pi = widget.ffi.ffiModel.pi;
