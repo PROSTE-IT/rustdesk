@@ -373,10 +373,7 @@ fn heartbeat_payload(system: &System, metrics: Option<Value>) -> Value {
         "hardware_fingerprint".to_owned(),
         json!(hardware_fingerprint()),
     );
-    payload.insert(
-        "local_ip_addresses".to_owned(),
-        json!(local_ip_addresses()),
-    );
+    payload.insert("local_ip_addresses".to_owned(), json!(local_ip_addresses()));
     payload.insert("entra_tenant_id".to_owned(), json!(entra_tenant_id()));
     payload.insert("ad_domain_name".to_owned(), json!(ad_domain_name()));
     payload.insert("ad_domain_sid".to_owned(), json!(ad_domain_sid()));
@@ -640,11 +637,7 @@ fn local_ip_addresses() -> Vec<String> {
             }
         }
     }
-    ipv4
-        .into_iter()
-        .chain(ipv6)
-        .take(32)
-        .collect()
+    ipv4.into_iter().chain(ipv6).take(32).collect()
 }
 
 fn nearby_rustdesk_ids() -> Vec<String> {
