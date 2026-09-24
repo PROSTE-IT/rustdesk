@@ -21,6 +21,8 @@ const managedWindowsUpdateChannels = {
 const supportClientBuildUuid = String.fromEnvironment('RDBK_BUILD_UUID');
 const supportClientBuildRunId = int.fromEnvironment('RDBK_BUILD_RUN_ID');
 const supportClientVersion = String.fromEnvironment('RDBK_APP_VERSION');
+const supportWindowsSignerSubject =
+    String.fromEnvironment('RDBK_WINDOWS_SIGNER_SUBJECT');
 const _supportTechnicianDisplayNameOption = 'proste-it-technician-display-name';
 
 class SupportCustomer {
@@ -69,6 +71,8 @@ class SupportDevice {
   final String lastConnectedByName;
   final bool isCritical;
   final String warning;
+  final bool isShared;
+  final SupportHostHealth? hostHealth;
   bool online;
 
   SupportDevice({
@@ -94,6 +98,8 @@ class SupportDevice {
     required this.lastConnectedByName,
     required this.isCritical,
     required this.warning,
+    required this.isShared,
+    required this.hostHealth,
     this.online = false,
   });
 
@@ -123,6 +129,11 @@ class SupportDevice {
       lastConnectedByName: json['last_connected_by_name']?.toString() ?? '',
       isCritical: json['is_critical'] == true,
       warning: json['warning']?.toString() ?? '',
+      isShared: json['is_shared'] == true,
+      hostHealth: json['host_health'] is Map
+          ? SupportHostHealth.fromJson(
+              Map<String, dynamic>.from(json['host_health'] as Map))
+          : null,
     );
   }
 
@@ -146,6 +157,227 @@ class SupportDevice {
     peer.online = online;
     return peer;
   }
+}
+
+double? _supportDouble(dynamic value) =>
+    value == null ? null : double.tryParse(value.toString());
+
+class SupportHostHealth {
+  final double? cpuHourAverage;
+  final double? memoryHourAverage;
+  final bool cpuAlert;
+  final bool memoryAlert;
+  final List<String> diskAlerts;
+  final List<Map<String, dynamic>> latestDisks;
+  final bool pendingReboot;
+  final DateTime? lastCriticalAt;
+  final String lastCriticalSource;
+  final int? lastCriticalEventId;
+  final DateTime? criticalAcknowledgedAt;
+  final DateTime? metricsUpdatedAt;
+
+  const SupportHostHealth({
+    required this.cpuHourAverage,
+    required this.memoryHourAverage,
+    required this.cpuAlert,
+    required this.memoryAlert,
+    required this.diskAlerts,
+    required this.latestDisks,
+    required this.pendingReboot,
+    required this.lastCriticalAt,
+    required this.lastCriticalSource,
+    required this.lastCriticalEventId,
+    required this.criticalAcknowledgedAt,
+    required this.metricsUpdatedAt,
+  });
+
+  factory SupportHostHealth.fromJson(Map<String, dynamic> json) =>
+      SupportHostHealth(
+        cpuHourAverage: _supportDouble(json['cpu_hour_average']),
+        memoryHourAverage: _supportDouble(json['memory_hour_average']),
+        cpuAlert: json['cpu_alert'] == true,
+        memoryAlert: json['memory_alert'] == true,
+        diskAlerts: (json['disk_alerts'] as List? ?? const [])
+            .map((item) => item.toString())
+            .toList(),
+        latestDisks: (json['latest_disks'] as List? ?? const [])
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList(),
+        pendingReboot: json['pending_reboot'] == true,
+        lastCriticalAt:
+            DateTime.tryParse(json['last_critical_at']?.toString() ?? ''),
+        lastCriticalSource: json['last_critical_source']?.toString() ?? '',
+        lastCriticalEventId:
+            int.tryParse(json['last_critical_event_id']?.toString() ?? ''),
+        criticalAcknowledgedAt: DateTime.tryParse(
+            json['critical_acknowledged_at']?.toString() ?? ''),
+        metricsUpdatedAt:
+            DateTime.tryParse(json['metrics_updated_at']?.toString() ?? ''),
+      );
+
+  bool get criticalUnacknowledged =>
+      lastCriticalAt != null &&
+      (criticalAcknowledgedAt == null ||
+          criticalAcknowledgedAt!.isBefore(lastCriticalAt!));
+
+  bool get hasAlert =>
+      cpuAlert ||
+      memoryAlert ||
+      diskAlerts.isNotEmpty ||
+      pendingReboot ||
+      criticalUnacknowledged;
+}
+
+class SupportHostMetric {
+  final DateTime? capturedAt;
+  final double cpuAverage;
+  final double cpuMaximum;
+  final double memoryAverage;
+  final double memoryMaximum;
+  final List<Map<String, dynamic>> disks;
+
+  const SupportHostMetric({
+    required this.capturedAt,
+    required this.cpuAverage,
+    required this.cpuMaximum,
+    required this.memoryAverage,
+    required this.memoryMaximum,
+    required this.disks,
+  });
+
+  factory SupportHostMetric.fromJson(Map<String, dynamic> json) =>
+      SupportHostMetric(
+        capturedAt: DateTime.tryParse(json['captured_at']?.toString() ?? ''),
+        cpuAverage: _supportDouble(json['cpu_average_percent']) ?? 0,
+        cpuMaximum: _supportDouble(json['cpu_maximum_percent']) ?? 0,
+        memoryAverage: _supportDouble(json['memory_average_percent']) ?? 0,
+        memoryMaximum: _supportDouble(json['memory_maximum_percent']) ?? 0,
+        disks: (json['disks'] as List? ?? const [])
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList(),
+      );
+}
+
+class SupportHostUser {
+  final String identity;
+  final String displayName;
+  final DateTime? lastSeen;
+  final int activeDayCount;
+  final bool technical;
+
+  const SupportHostUser({
+    required this.identity,
+    required this.displayName,
+    required this.lastSeen,
+    required this.activeDayCount,
+    required this.technical,
+  });
+
+  factory SupportHostUser.fromJson(Map<String, dynamic> json) =>
+      SupportHostUser(
+        identity: json['normalized_identity']?.toString() ?? '',
+        displayName: json['display_name']?.toString() ?? '',
+        lastSeen: DateTime.tryParse(json['last_seen']?.toString() ?? ''),
+        activeDayCount: (json['active_days'] as List? ?? const []).length,
+        technical: json['ignored_as_technical'] == true,
+      );
+}
+
+class SupportAutomationProposal {
+  final String kind;
+  final String status;
+  final String value;
+  final String customerName;
+  final int confirmationCount;
+  final DateTime? executeAfter;
+
+  const SupportAutomationProposal({
+    required this.kind,
+    required this.status,
+    required this.value,
+    required this.customerName,
+    required this.confirmationCount,
+    required this.executeAfter,
+  });
+
+  factory SupportAutomationProposal.fromJson(Map<String, dynamic> json) =>
+      SupportAutomationProposal(
+        kind: json['kind']?.toString() ?? '',
+        status: json['status']?.toString() ?? '',
+        value: json['proposed_value']?.toString() ?? '',
+        customerName: json['customer_name']?.toString() ?? '',
+        confirmationCount:
+            int.tryParse(json['confirmation_count']?.toString() ?? '') ?? 0,
+        executeAfter:
+            DateTime.tryParse(json['execute_after']?.toString() ?? ''),
+      );
+
+  bool get active => status == 'observing' || status == 'scheduled';
+}
+
+class SupportHostData {
+  final String state;
+  final String hostname;
+  final String username;
+  final String osName;
+  final String osVersion;
+  final String cpuName;
+  final int? cpuLogicalCount;
+  final int? memoryTotalBytes;
+  final String clientVersion;
+  final bool pendingReboot;
+  final List<SupportHostMetric> metrics;
+  final List<SupportHostUser> users;
+  final List<SupportAutomationProposal> proposals;
+
+  const SupportHostData({
+    required this.state,
+    required this.hostname,
+    required this.username,
+    required this.osName,
+    required this.osVersion,
+    required this.cpuName,
+    required this.cpuLogicalCount,
+    required this.memoryTotalBytes,
+    required this.clientVersion,
+    required this.pendingReboot,
+    required this.metrics,
+    required this.users,
+    required this.proposals,
+  });
+
+  factory SupportHostData.fromJson(Map<String, dynamic> json) =>
+      SupportHostData(
+        state: json['state']?.toString() ?? '',
+        hostname: json['hostname']?.toString() ?? '',
+        username: json['username']?.toString() ?? '',
+        osName: json['os_name']?.toString() ?? '',
+        osVersion: json['os_version']?.toString() ?? '',
+        cpuName: json['cpu_name']?.toString() ?? '',
+        cpuLogicalCount:
+            int.tryParse(json['cpu_logical_count']?.toString() ?? ''),
+        memoryTotalBytes:
+            int.tryParse(json['memory_total_bytes']?.toString() ?? ''),
+        clientVersion: json['client_version']?.toString() ?? '',
+        pendingReboot: json['pending_reboot'] == true,
+        metrics: (json['metrics'] as List? ?? const [])
+            .whereType<Map>()
+            .map((item) =>
+                SupportHostMetric.fromJson(Map<String, dynamic>.from(item)))
+            .toList(),
+        users: (json['users'] as List? ?? const [])
+            .whereType<Map>()
+            .map((item) =>
+                SupportHostUser.fromJson(Map<String, dynamic>.from(item)))
+            .toList(),
+        proposals: (json['proposals'] as List? ?? const [])
+            .whereType<Map>()
+            .map((item) => SupportAutomationProposal.fromJson(
+                Map<String, dynamic>.from(item)))
+            .toList(),
+      );
 }
 
 class SupportTechnician {
@@ -293,11 +525,13 @@ enum SupportBackendConnectionState {
 
 class SupportDeviceCardData {
   final SupportDevice device;
+  final SupportHostData? host;
   final List<SupportSessionSummary> activeSessions;
   final List<SupportSessionSummary> sessions;
 
   const SupportDeviceCardData({
     required this.device,
+    required this.host,
     required this.activeSessions,
     required this.sessions,
   });
@@ -756,6 +990,59 @@ class SupportAddressBookModel with ChangeNotifier {
     }
   }
 
+  Future<SupportClientUpdate> helpdeskMigrationUpdate() async {
+    await ensureInitialized();
+    if (!isAuthenticated) {
+      throw const SupportAddressBookException(
+          'Zaloguj technika przed migracją hosta.');
+    }
+    final response = await http
+        .get(
+          _uri(
+            'api/v1/client-update/',
+            {'channel': 'windows_helpdesk'},
+          ),
+          headers: _headers(),
+        )
+        .timeout(const Duration(seconds: 15));
+    final body = _requireSuccess(response);
+    if (body is! Map || body['configured'] != true) {
+      throw const SupportAddressBookException(
+          'Kanał aktualizacji Windows Helpdesk nie jest skonfigurowany.');
+    }
+    final update =
+        SupportClientUpdate.fromJson(Map<String, dynamic>.from(body));
+    if (update.channel != 'windows_helpdesk' ||
+        update.buildUuid.isEmpty ||
+        update.version.isEmpty ||
+        !update.filename.toLowerCase().endsWith('.msi') ||
+        update.downloadUrl.isEmpty) {
+      throw const SupportAddressBookException(
+          'Serwer zwrócił nieprawidłowy pakiet migracyjny.');
+    }
+    return update;
+  }
+
+  Future<void> recordLegacyMigration({
+    required String rustdeskId,
+    required String fromVersion,
+    required SupportClientUpdate update,
+  }) async {
+    final response = await http
+        .post(
+          _uri('api/v1/legacy-migrations/'),
+          headers: _headers(),
+          body: jsonEncode({
+            'rustdesk_id': rustdeskId,
+            'from_version': fromVersion,
+            'target_version': update.version,
+            'target_build_uuid': update.buildUuid,
+          }),
+        )
+        .timeout(const Duration(seconds: 10));
+    _requireSuccess(response);
+  }
+
   Future<void> refresh({bool silent = false}) async {
     await ensureInitialized();
     if (!isAuthenticated || _refreshing) return;
@@ -995,6 +1282,10 @@ class SupportAddressBookModel with ChangeNotifier {
     return SupportDeviceCardData(
       device: SupportDevice.fromJson(
           Map<String, dynamic>.from(body['device'] as Map)),
+      host: body['host'] is Map
+          ? SupportHostData.fromJson(
+              Map<String, dynamic>.from(body['host'] as Map))
+          : null,
       activeSessions: sessions('active_sessions'),
       sessions: sessions('sessions'),
     );

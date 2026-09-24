@@ -985,6 +985,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
 
     final items = <Widget>[
       _SupportSessionStatus(id: widget.id, ffi: widget.ffi),
+      _LegacyHostMigrationButton(id: widget.id, ffi: widget.ffi),
       const _SupportToolbarDivider(),
       _SupportToolbarActionButton(
         icon: Icons.keyboard_command_key,
@@ -1713,6 +1714,163 @@ class _SupportSessionStatusState extends State<_SupportSessionStatus> {
           ),
         );
       },
+    );
+  }
+}
+
+class _LegacyHostMigrationButton extends StatefulWidget {
+  final String id;
+  final FFI ffi;
+
+  const _LegacyHostMigrationButton({required this.id, required this.ffi});
+
+  @override
+  State<_LegacyHostMigrationButton> createState() =>
+      _LegacyHostMigrationButtonState();
+}
+
+class _LegacyHostMigrationButtonState
+    extends State<_LegacyHostMigrationButton> {
+  bool _promptScheduled = false;
+  bool _promptOpen = false;
+  bool _busy = false;
+  bool _started = false;
+
+  bool get _eligible {
+    final pi = widget.ffi.ffiModel.pi;
+    return !_started &&
+        pi.platform == kPeerPlatformWindows &&
+        pi.version.isNotEmpty &&
+        versionCmp(pi.version, '1.4.9') < 0 &&
+        !widget.ffi.ffiModel.viewOnly &&
+        widget.ffi.ffiModel.keyboard &&
+        supportAddressBookModel.isAuthenticated;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_eligible && !_started) return const Offstage();
+    if (_eligible && !_promptScheduled) {
+      _promptScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _eligible) unawaited(_promptAndStart());
+      });
+    }
+    return _SupportToolbarActionButton(
+      icon: _started ? Icons.check_circle_outline : Icons.system_update_alt,
+      label: _started ? 'Migracja uruchomiona' : 'Aktualizuj host',
+      tooltip: _started
+          ? 'Instalacja nowego Helpdeska została uruchomiona'
+          : 'Host ma RustDesk ${widget.ffi.ffiModel.pi.version}; uruchom migrację do wersji zarządzanej',
+      active: !_started,
+      onPressed: _busy || _started ? null : _promptAndStart,
+    );
+  }
+
+  Future<void> _promptAndStart() async {
+    if (_promptOpen || _busy || _started) return;
+    _promptOpen = true;
+    bool confirmed;
+    try {
+      confirmed = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('Starszy RustDesk wymaga migracji'),
+              content: Text(
+                'Host ${widget.id} używa wersji '
+                '${widget.ffi.ffiModel.pi.version}, starszej niż 1.4.9. '
+                'Support pobierze podpisany instalator Helpdesk, sprawdzi podpis '
+                'i uruchomi instalację. Technik musi jedynie zaakceptować okno UAC, '
+                'jeżeli pojawi się na zdalnym komputerze.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Później'),
+                ),
+                FilledButton.icon(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  icon: const Icon(Icons.system_update_alt),
+                  label: const Text('Aktualizuj teraz'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+    } finally {
+      _promptOpen = false;
+    }
+    if (!confirmed || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      final update = await supportAddressBookModel.helpdeskMigrationUpdate();
+      await supportAddressBookModel.recordLegacyMigration(
+        rustdeskId: widget.id,
+        fromVersion: widget.ffi.ffiModel.pi.version,
+        update: update,
+      );
+      await _sendMigrationCommand(update);
+      if (!mounted) return;
+      setState(() => _started = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Migracja uruchomiona. Zaakceptuj UAC na zdalnym komputerze, jeśli się pojawi.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Nie udało się uruchomić migracji: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _sendMigrationCommand(SupportClientUpdate update) async {
+    final url = update.downloadUrl.replaceAll("'", "''");
+    final signer = supportWindowsSignerSubject.replaceAll("'", "''");
+    final script = "\$p=Join-Path \$env:TEMP 'proste-it-helpdesk-update.msi';"
+        "Invoke-WebRequest -UseBasicParsing -Uri '$url' -OutFile \$p;"
+        "\$s=Get-AuthenticodeSignature -LiteralPath \$p;"
+        "if(\$s.Status -ne 'Valid'){Remove-Item -LiteralPath \$p -Force;throw 'Nieprawidlowy podpis instalatora'};"
+        "if('$signer' -and \$s.SignerCertificate.Subject -notlike ('*'+'$signer'+'*')){Remove-Item -LiteralPath \$p -Force;throw 'Nieprawidlowy wydawca instalatora'};"
+        "\$a=@('/i',('\"'+\$p+'\"'),'/qn','LAUNCH_TRAY_APP=N','REBOOT=ReallySuppress','/norestart');"
+        "Start-Process -FilePath (Join-Path \$env:SystemRoot 'System32\\msiexec.exe') -Verb RunAs -ArgumentList \$a";
+    final utf16 = <int>[];
+    for (final codeUnit in script.codeUnits) {
+      utf16
+        ..add(codeUnit & 0xff)
+        ..add((codeUnit >> 8) & 0xff);
+    }
+    final command =
+        'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${base64Encode(utf16)}';
+    bind.sessionInputKey(
+      sessionId: widget.ffi.sessionId,
+      name: 'VK_R',
+      down: false,
+      press: true,
+      alt: false,
+      ctrl: false,
+      shift: false,
+      command: true,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    bind.sessionInputString(
+      sessionId: widget.ffi.sessionId,
+      value: command,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    bind.sessionInputKey(
+      sessionId: widget.ffi.sessionId,
+      name: 'VK_RETURN',
+      down: false,
+      press: true,
+      alt: false,
+      ctrl: false,
+      shift: false,
+      command: false,
     );
   }
 }

@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[cfg(all(target_os = "windows", feature = "flutter"))]
+#[cfg(target_os = "windows")]
 const SUPPORT_UPDATE_MAX_BYTES: u64 = 200 * 1024 * 1024;
 
 enum UpdateMsg {
@@ -49,7 +49,7 @@ pub fn stop_auto_update() {
     sender.send(UpdateMsg::Exit).unwrap_or_default();
 }
 
-#[cfg(all(target_os = "windows", feature = "flutter"))]
+#[cfg(target_os = "windows")]
 pub fn install_support_update(download_url: String) -> ResultType<()> {
     if !crate::platform::is_installed() || !crate::platform::windows::is_root() {
         bail!("Aktualizacja wymaga uruchomionej usługi systemowej.");
@@ -124,7 +124,7 @@ pub fn install_quick_support_as_helpdesk(download_url: String) -> ResultType<()>
     Ok(())
 }
 
-#[cfg(all(target_os = "windows", feature = "flutter"))]
+#[cfg(target_os = "windows")]
 fn download_managed_msi(download_url: String) -> ResultType<(PathBuf, String)> {
     let configured_base = option_env!("RDBK_API_URL").unwrap_or("").trim();
     if configured_base.is_empty() {
@@ -194,10 +194,45 @@ fn download_managed_msi(download_url: String) -> ResultType<(PathBuf, String)> {
         std::fs::remove_file(&installer).ok();
         bail!("Pobrany plik nie jest instalatorem MSI.");
     }
+    if let Err(error) = verify_managed_msi_signature(&installer) {
+        std::fs::remove_file(&installer).ok();
+        return Err(error);
+    }
     Ok((installer, update_channel.to_owned()))
 }
 
-#[cfg(all(target_os = "windows", feature = "flutter"))]
+#[cfg(target_os = "windows")]
+fn verify_managed_msi_signature(installer: &std::path::Path) -> ResultType<()> {
+    let system_root = std::env::var_os("SystemRoot")
+        .ok_or_else(|| hbb_common::anyhow::anyhow!("Brak katalogu systemowego Windows."))?;
+    let powershell = PathBuf::from(system_root)
+        .join("System32")
+        .join("WindowsPowerShell")
+        .join("v1.0")
+        .join("powershell.exe");
+    let expected_subject = option_env!("RDBK_WINDOWS_SIGNER_SUBJECT")
+        .unwrap_or("")
+        .trim();
+    let status = std::process::Command::new(powershell)
+        .env("RDBK_MSI_PATH", installer)
+        .env("RDBK_SIGNER_SUBJECT", expected_subject)
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "$s=Get-AuthenticodeSignature -LiteralPath $env:RDBK_MSI_PATH;if($s.Status -ne 'Valid'){exit 2};if($env:RDBK_SIGNER_SUBJECT -and $s.SignerCertificate.Subject -notlike ('*'+$env:RDBK_SIGNER_SUBJECT+'*')){exit 3}",
+        ])
+        .status()?;
+    if !status.success() {
+        bail!("Podpis cyfrowy instalatora jest nieprawidłowy lub pochodzi od innego wydawcy.");
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
 fn spawn_managed_msi(installer: &std::path::Path, silent: bool) -> ResultType<std::process::Child> {
     let system_root = std::env::var_os("SystemRoot")
         .ok_or_else(|| hbb_common::anyhow::anyhow!("Brak katalogu systemowego Windows."))?;

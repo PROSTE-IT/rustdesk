@@ -447,6 +447,9 @@ def build_flutter_windows(version, features, skip_portable_pack):
     dart_defines = {
         'RDBK_API_URL': os.environ.get('RDBK_API_URL', '').strip(),
         'RDBK_UPDATE_CHANNEL': os.environ.get('RDBK_UPDATE_CHANNEL', '').strip(),
+        'RDBK_HOST_AGENT': os.environ.get('RDBK_HOST_AGENT', '').strip(),
+        'RDBK_WINDOWS_SIGNER_SUBJECT': os.environ.get(
+            'RDBK_WINDOWS_SIGNER_SUBJECT', '').strip(),
         'RDBK_BUILD_UUID': os.environ.get('RDBK_BUILD_UUID', '').strip(),
         'RDBK_BUILD_RUN_ID': os.environ.get('GITHUB_RUN_ID', '').strip(),
         'RDBK_APP_VERSION': os.environ.get('PIT_VERSION', '').strip(),

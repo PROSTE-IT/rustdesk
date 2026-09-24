@@ -12,6 +12,9 @@ on:
       - src/flutter_ffi.rs
       - src/ipc.rs
       - src/updater.rs
+      - src/rdbk_host_agent.rs
+      - src/lib.rs
+      - src/rendezvous_mediator.rs
       - flutter/lib/common.dart
       - flutter/lib/consts.dart
       - flutter/lib/common/widgets/support_address_book.dart
@@ -80,8 +83,11 @@ jobs:
           dart format "${files[@]}"
           git diff --exit-code -- "${files[@]}"
 
-      - name: Check managed updater Rust formatting
-        run: rustfmt --edition 2021 --check src/updater.rs
+      - name: Check managed agent Rust formatting
+        run: >-
+          rustfmt --edition 2021 --check
+          src/updater.rs
+          src/rdbk_host_agent.rs
 
       - name: Analyze address book models
         working-directory: flutter

@@ -7,7 +7,15 @@ import 'package:flutter_hbb/models/peer_tab_model.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/support_address_book_model.dart';
 
-enum _SupportDeviceFilter { all, online, offline, servers, computers }
+enum _SupportDeviceFilter {
+  all,
+  attention,
+  online,
+  offline,
+  servers,
+  computers,
+  shared,
+}
 
 enum _SupportDeviceView { list, tiles }
 
@@ -346,10 +354,12 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
   Widget _buildFilters() {
     const labels = {
       _SupportDeviceFilter.all: 'Wszystkie',
+      _SupportDeviceFilter.attention: 'Wymagają uwagi',
       _SupportDeviceFilter.online: 'Online',
       _SupportDeviceFilter.offline: 'Offline',
       _SupportDeviceFilter.servers: 'Serwery',
       _SupportDeviceFilter.computers: 'Komputery',
+      _SupportDeviceFilter.shared: 'Współdzielone',
     };
     return Wrap(
       spacing: 4,
@@ -538,7 +548,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                   gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                     maxCrossAxisExtent: 360,
-                    mainAxisExtent: 244,
+                    mainAxisExtent: 276,
                     crossAxisSpacing: 10,
                     mainAxisSpacing: 10,
                   ),
@@ -569,7 +579,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
   }
 
   Widget _buildDevice(SupportDevice device) {
-    final critical = device.isCritical || device.warning.isNotEmpty;
+    final critical = _needsAttention(device);
     return Card(
       key: ValueKey('support-device-${device.id}'),
       margin: const EdgeInsets.only(bottom: 8),
@@ -613,7 +623,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
   }
 
   Widget _buildDeviceTile(SupportDevice device) {
-    final critical = device.isCritical || device.warning.isNotEmpty;
+    final critical = _needsAttention(device);
     final hostname = device.hostname.isEmpty ? '—' : device.hostname;
     final username =
         device.remoteUsername.isEmpty ? '—' : device.remoteUsername;
@@ -669,6 +679,9 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                     device.deviceType == 'server' ? 'Serwer' : 'Komputer',
                     Theme.of(context).colorScheme.primary,
                   ),
+                  if (device.isShared)
+                    _deviceBadge('Współdzielony', Colors.indigo),
+                  ..._healthBadges(device),
                 ],
               ),
               const SizedBox(height: 10),
@@ -739,7 +752,9 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                   device.isInstalled! ? 'Zainstalowany' : 'Przenośny',
                   Theme.of(context).colorScheme.secondary,
                 ),
-              if (critical)
+              if (device.isShared) _deviceBadge('Współdzielony', Colors.indigo),
+              ..._healthBadges(device),
+              if (critical && _healthBadges(device).isEmpty)
                 _deviceBadge('Uwaga', Theme.of(context).colorScheme.error),
             ],
           ),
@@ -853,6 +868,15 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                         ? 'Bez monitora'
                         : 'Monitor dostępny',
               ),
+              if (device.hostHealth != null)
+                _deviceInfoTile(
+                  width: tileWidth,
+                  icon: Icons.monitor_heart_outlined,
+                  label: 'Ostatnia godzina',
+                  primary:
+                      'CPU ${_percent(device.hostHealth!.cpuHourAverage)} • RAM ${_percent(device.hostHealth!.memoryHourAverage)}',
+                  secondary: _diskSummary(device.hostHealth!),
+                ),
             ],
           );
         },
@@ -919,6 +943,39 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
         visualDensity: VisualDensity.compact,
       );
 
+  bool _needsAttention(SupportDevice device) =>
+      device.isCritical ||
+      device.warning.isNotEmpty ||
+      (device.hostHealth?.hasAlert ?? false);
+
+  List<Widget> _healthBadges(SupportDevice device) {
+    final health = device.hostHealth;
+    if (health == null) return const [];
+    final error = Theme.of(context).colorScheme.error;
+    return [
+      if (health.cpuAlert) _deviceBadge('CPU >80%', error),
+      if (health.memoryAlert) _deviceBadge('RAM >80%', error),
+      if (health.diskAlerts.isNotEmpty) _deviceBadge('Dysk >90%', error),
+      if (health.pendingReboot) _deviceBadge('Wymaga restartu', Colors.orange),
+      if (health.criticalUnacknowledged)
+        _deviceBadge('Critical', Colors.deepOrange),
+    ];
+  }
+
+  String _percent(double? value) =>
+      value == null ? '—' : '${value.toStringAsFixed(1)}%';
+
+  String _diskSummary(SupportHostHealth health) {
+    if (health.latestDisks.isEmpty) return 'Brak danych o dyskach';
+    return health.latestDisks.map((disk) {
+      final name = disk['name']?.toString() ?? 'Dysk';
+      final used = double.tryParse(disk['used_percent']?.toString() ?? '');
+      final free = int.tryParse(disk['free_bytes']?.toString() ?? '');
+      final freeLabel = _formatBytes(free);
+      return '$name ${_percent(used)} zajęte${freeLabel.isEmpty ? '' : ', wolne $freeLabel'}';
+    }).join(' • ');
+  }
+
   Widget _deviceMenu(SupportDevice device) => PopupMenuButton<String>(
         tooltip: 'Opcje urządzenia',
         onSelected: (action) async {
@@ -966,6 +1023,8 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
     switch (_filter) {
       case _SupportDeviceFilter.all:
         return true;
+      case _SupportDeviceFilter.attention:
+        return _needsAttention(device);
       case _SupportDeviceFilter.online:
         return device.online;
       case _SupportDeviceFilter.offline:
@@ -974,6 +1033,8 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
         return device.deviceType == 'server';
       case _SupportDeviceFilter.computers:
         return device.deviceType != 'server';
+      case _SupportDeviceFilter.shared:
+        return device.isShared;
     }
   }
 
@@ -1025,6 +1086,8 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                 _cardRow('Użytkownik', card.device.remoteUsername),
                 _cardRow('System', card.device.platform),
                 _cardRow('Wersja RustDesk', card.device.rustdeskVersion),
+                _cardRow('Urządzenie współdzielone',
+                    card.device.isShared ? 'tak' : 'nie'),
                 _cardRow(
                     'Monitory', card.device.displayCount?.toString() ?? ''),
                 _cardRow(
@@ -1055,6 +1118,71 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                     _formatSupportDate(card.device.lastConnectedAt)),
                 if (card.device.note.isNotEmpty)
                   _cardRow('Notatka', card.device.note),
+                if (card.host != null) ...[
+                  const Divider(height: 28),
+                  Text('Stan hosta',
+                      style: Theme.of(dialogContext).textTheme.titleMedium),
+                  _cardRow('Proces przypisania', card.host!.state),
+                  _cardRow('System',
+                      '${card.host!.osName} ${card.host!.osVersion}'.trim()),
+                  _cardRow(
+                    'Procesor',
+                    [
+                      card.host!.cpuName,
+                      if (card.host!.cpuLogicalCount != null)
+                        '${card.host!.cpuLogicalCount} wątków',
+                    ].where((value) => value.isNotEmpty).join(' • '),
+                  ),
+                  _cardRow(
+                      'Pamięć RAM', _formatBytes(card.host!.memoryTotalBytes)),
+                  _cardRow('Oczekujący restart',
+                      card.host!.pendingReboot ? 'tak' : 'nie'),
+                  if (card.device.hostHealth != null) ...[
+                    _cardRow(
+                      'Średnia z ostatniej godziny',
+                      'CPU ${_percent(card.device.hostHealth!.cpuHourAverage)} • RAM ${_percent(card.device.hostHealth!.memoryHourAverage)}',
+                    ),
+                    _cardRow('Dyski', _diskSummary(card.device.hostHealth!)),
+                    if (card.device.hostHealth!.lastCriticalAt != null)
+                      _cardRow(
+                        'Ostatni Critical',
+                        [
+                          _formatSupportDate(
+                              card.device.hostHealth!.lastCriticalAt),
+                          card.device.hostHealth!.lastCriticalSource,
+                          if (card.device.hostHealth!.lastCriticalEventId !=
+                              null)
+                            'Event ID ${card.device.hostHealth!.lastCriticalEventId}',
+                        ].where((value) => value.isNotEmpty).join(' • '),
+                      ),
+                  ],
+                  if (card.host!.metrics.isNotEmpty)
+                    _cardRow(
+                      'Ostatnie próbki (maks. godzina)',
+                      card.host!.metrics.reversed
+                          .take(12)
+                          .map((sample) =>
+                              '${_formatSupportDate(sample.capturedAt)} — CPU ${_percent(sample.cpuAverage)}, RAM ${_percent(sample.memoryAverage)}')
+                          .join('\n'),
+                    ),
+                  if (card.host!.users.isNotEmpty)
+                    _cardRow(
+                      'Regularni użytkownicy',
+                      card.host!.users
+                          .where((user) => !user.technical)
+                          .map((user) =>
+                              '${user.displayName.isEmpty ? user.identity : user.displayName} (${user.activeDayCount} dni)')
+                          .join('\n'),
+                    ),
+                  if (card.host!.proposals.any((item) => item.active))
+                    _cardRow(
+                      'Procesy automatyczne',
+                      card.host!.proposals
+                          .where((item) => item.active)
+                          .map((item) => _proposalSummary(item))
+                          .join('\n'),
+                    ),
+                ],
                 const Divider(height: 28),
                 Text('Historia sesji',
                     style: Theme.of(dialogContext).textTheme.titleMedium),
@@ -1112,6 +1240,21 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
   Widget _cardRow(String label, String value) => value.isEmpty
       ? const SizedBox.shrink()
       : ListTile(dense: true, title: Text(label), subtitle: Text(value));
+
+  String _formatBytes(int? bytes) {
+    if (bytes == null || bytes <= 0) return '';
+    return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
+  }
+
+  String _proposalSummary(SupportAutomationProposal proposal) {
+    final target = proposal.customerName.isNotEmpty
+        ? proposal.customerName
+        : proposal.value;
+    final when = proposal.executeAfter == null
+        ? 'zbieranie potwierdzeń'
+        : 'plan: ${_formatSupportDate(proposal.executeAfter)}';
+    return '${proposal.kind}: $target • $when • ${proposal.confirmationCount} potwierdzeń';
+  }
 
   Future<void> _deleteDevice(SupportDevice device) async {
     final confirmed = await _confirm(
