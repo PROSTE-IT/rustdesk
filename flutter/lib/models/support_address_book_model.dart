@@ -326,6 +326,7 @@ class SupportHostData {
   final String cpuName;
   final int? cpuLogicalCount;
   final int? memoryTotalBytes;
+  final List<String> localIpAddresses;
   final String clientVersion;
   final bool pendingReboot;
   final List<SupportHostMetric> metrics;
@@ -341,6 +342,7 @@ class SupportHostData {
     required this.cpuName,
     required this.cpuLogicalCount,
     required this.memoryTotalBytes,
+    required this.localIpAddresses,
     required this.clientVersion,
     required this.pendingReboot,
     required this.metrics,
@@ -360,6 +362,10 @@ class SupportHostData {
             int.tryParse(json['cpu_logical_count']?.toString() ?? ''),
         memoryTotalBytes:
             int.tryParse(json['memory_total_bytes']?.toString() ?? ''),
+        localIpAddresses: (json['local_ip_addresses'] as List? ?? const [])
+            .map((item) => item.toString())
+            .where((item) => item.isNotEmpty)
+            .toList(),
         clientVersion: json['client_version']?.toString() ?? '',
         pendingReboot: json['pending_reboot'] == true,
         metrics: (json['metrics'] as List? ?? const [])

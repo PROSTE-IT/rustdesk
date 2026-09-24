@@ -1733,12 +1733,42 @@ class _LegacyHostMigrationButton extends StatefulWidget {
 class _LegacyHostMigrationButtonState
     extends State<_LegacyHostMigrationButton> {
   bool _promptOpen = false;
+  Timer? _autoPromptTimer;
 
   String get _sessionKey => '${widget.id}:${widget.ffi.sessionId}';
 
   bool get _busy => legacyHostMigrationCoordinator.isInFlight(_sessionKey);
 
   bool get _started => legacyHostMigrationCoordinator.isDispatched(_sessionKey);
+
+  @override
+  void initState() {
+    super.initState();
+    legacyHostMigrationCoordinator.addListener(_scheduleAutoPrompt);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _scheduleAutoPrompt();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _LegacyHostMigrationButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.id != widget.id ||
+        oldWidget.ffi.sessionId != widget.ffi.sessionId) {
+      _autoPromptTimer?.cancel();
+      _autoPromptTimer = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scheduleAutoPrompt();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    legacyHostMigrationCoordinator.removeListener(_scheduleAutoPrompt);
+    _autoPromptTimer?.cancel();
+    super.dispose();
+  }
 
   bool get _eligible {
     final pi = widget.ffi.ffiModel.pi;
@@ -1756,12 +1786,6 @@ class _LegacyHostMigrationButtonState
   @override
   Widget build(BuildContext context) {
     if (!_eligible && !_started) return const Offstage();
-    if (_eligible &&
-        legacyHostMigrationCoordinator.reserveAutoPrompt(_sessionKey)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _eligible) unawaited(_promptAndStart());
-      });
-    }
     return _SupportToolbarActionButton(
       icon: _started
           ? Icons.check_circle_outline
@@ -1777,12 +1801,42 @@ class _LegacyHostMigrationButtonState
           ? 'Polecenie instalacji nowego Helpdeska zostało wysłane do hosta'
           : 'Host ma RustDesk ${widget.ffi.ffiModel.pi.version}; uruchom migrację do wersji zarządzanej',
       active: !_started,
-      onPressed: _busy || _started ? null : _promptAndStart,
+      onPressed:
+          _busy || _started ? null : () => _promptAndStart(manual: true),
     );
   }
 
-  Future<void> _promptAndStart() async {
+  void _scheduleAutoPrompt() {
+    _autoPromptTimer?.cancel();
+    _autoPromptTimer = null;
+    if (!mounted || !_eligible) return;
+    final remaining = legacyHostMigrationCoordinator
+        .autoPromptDelayRemaining(_sessionKey);
+    if (remaining == null) return;
+    _autoPromptTimer = Timer(remaining, _showAutoPromptWhenReady);
+  }
+
+  void _showAutoPromptWhenReady() {
+    _autoPromptTimer = null;
+    if (!mounted || !_eligible) return;
+    final remaining = legacyHostMigrationCoordinator
+        .autoPromptDelayRemaining(_sessionKey);
+    if (remaining == null) return;
+    if (remaining > Duration.zero) {
+      _autoPromptTimer = Timer(remaining, _showAutoPromptWhenReady);
+      return;
+    }
+    if (!legacyHostMigrationCoordinator.reserveAutoPrompt(_sessionKey)) return;
+    unawaited(_promptAndStart());
+  }
+
+  Future<void> _promptAndStart({bool manual = false}) async {
     if (_promptOpen || _busy || _started) return;
+    _autoPromptTimer?.cancel();
+    _autoPromptTimer = null;
+    if (manual) {
+      legacyHostMigrationCoordinator.reserveAutoPrompt(_sessionKey);
+    }
     _promptOpen = true;
     bool confirmed;
     try {

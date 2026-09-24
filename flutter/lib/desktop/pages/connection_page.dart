@@ -268,59 +268,18 @@ class ConnectionPage extends StatefulWidget {
 
 /// State for the connection page.
 class _ConnectionPageState extends State<ConnectionPage>
-    with SingleTickerProviderStateMixin, WindowListener {
-  /// Controller for the id input bar.
-  final _idController = IDTextEditingController();
-
-  final RxBool _idInputFocused = false.obs;
-  final FocusNode _idFocusNode = FocusNode();
-  final TextEditingController _idEditingController = TextEditingController();
-
-  String selectedConnectionType = 'Connect';
-
+    with WindowListener {
   bool isWindowMinimized = false;
-
-  final AllPeersLoader _allPeersLoader = AllPeersLoader();
-
-  // https://github.com/flutter/flutter/issues/157244
-  Iterable<Peer> _autocompleteOpts = [];
-
-  final _menuOpen = false.obs;
 
   @override
   void initState() {
     super.initState();
-    _allPeersLoader.init(setState);
-    _idFocusNode.addListener(onFocusChanged);
-    if (_idController.text.isEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        final lastRemoteId = await bind.mainGetLastRemoteId();
-        if (lastRemoteId != _idController.id) {
-          setState(() {
-            _idController.id = lastRemoteId;
-          });
-        }
-      });
-    }
-    Get.put<TextEditingController>(_idEditingController);
-    Get.put<IDTextEditingController>(_idController);
     windowManager.addListener(this);
   }
 
   @override
   void dispose() {
-    _idController.dispose();
     windowManager.removeListener(this);
-    _allPeersLoader.clear();
-    _idFocusNode.removeListener(onFocusChanged);
-    _idFocusNode.dispose();
-    _idEditingController.dispose();
-    if (Get.isRegistered<IDTextEditingController>()) {
-      Get.delete<IDTextEditingController>();
-    }
-    if (Get.isRegistered<TextEditingController>()) {
-      Get.delete<TextEditingController>();
-    }
     super.dispose();
   }
 
@@ -358,35 +317,23 @@ class _ConnectionPageState extends State<ConnectionPage>
     bind.mainOnMainWindowClose();
   }
 
-  void onFocusChanged() {
-    _idInputFocused.value = _idFocusNode.hasFocus;
-    if (_idFocusNode.hasFocus) {
-      if (_allPeersLoader.needLoad) {
-        _allPeersLoader.getAllPeers();
-      }
-
-      final textLength = _idEditingController.value.text.length;
-      // Select all to facilitate removing text, just following the behavior of address input of chrome.
-      _idEditingController.selection =
-          TextSelection(baseOffset: 0, extentOffset: textLength);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final isOutgoingOnly = bind.isOutgoingOnly();
+    final showRemoteConnectionPanel = !supportAddressBookModel.enabled;
     return Column(
       children: [
         Expanded(
             child: Column(
           children: [
-            Row(
-              children: [
-                Flexible(child: _buildRemoteIDTextField(context)),
-              ],
-            ).marginOnly(top: 22),
-            SizedBox(height: 12),
-            Divider().paddingOnly(right: 12),
+            if (showRemoteConnectionPanel)
+              const Row(
+                children: [
+                  Flexible(child: RemoteConnectionPanel()),
+                ],
+              ).marginOnly(top: 22),
+            if (showRemoteConnectionPanel) const SizedBox(height: 12),
+            if (showRemoteConnectionPanel) Divider().paddingOnly(right: 12),
             Expanded(child: PeerTabPage()),
           ],
         ).paddingOnly(left: 12.0)),
@@ -395,6 +342,76 @@ class _ConnectionPageState extends State<ConnectionPage>
       ],
     );
   }
+}
+
+class RemoteConnectionPanel extends StatefulWidget {
+  final bool compact;
+
+  const RemoteConnectionPanel({super.key, this.compact = false});
+
+  @override
+  State<RemoteConnectionPanel> createState() => _RemoteConnectionPanelState();
+}
+
+class _RemoteConnectionPanelState extends State<RemoteConnectionPanel> {
+  final _idController = IDTextEditingController();
+  final RxBool _idInputFocused = false.obs;
+  final FocusNode _idFocusNode = FocusNode();
+  final TextEditingController _idEditingController = TextEditingController();
+  final AllPeersLoader _allPeersLoader = AllPeersLoader();
+  final _menuOpen = false.obs;
+
+  // https://github.com/flutter/flutter/issues/157244
+  Iterable<Peer> _autocompleteOpts = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _allPeersLoader.init(setState);
+    _idFocusNode.addListener(onFocusChanged);
+    if (_idController.text.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final lastRemoteId = await bind.mainGetLastRemoteId();
+        if (mounted && lastRemoteId != _idController.id) {
+          setState(() => _idController.id = lastRemoteId);
+        }
+      });
+    }
+    Get.put<TextEditingController>(_idEditingController);
+    Get.put<IDTextEditingController>(_idController);
+  }
+
+  @override
+  void dispose() {
+    _idController.dispose();
+    _allPeersLoader.clear();
+    _idFocusNode.removeListener(onFocusChanged);
+    _idFocusNode.dispose();
+    _idEditingController.dispose();
+    if (Get.isRegistered<IDTextEditingController>()) {
+      Get.delete<IDTextEditingController>();
+    }
+    if (Get.isRegistered<TextEditingController>()) {
+      Get.delete<TextEditingController>();
+    }
+    super.dispose();
+  }
+
+  void onFocusChanged() {
+    _idInputFocused.value = _idFocusNode.hasFocus;
+    if (_idFocusNode.hasFocus) {
+      if (_allPeersLoader.needLoad) {
+        _allPeersLoader.getAllPeers();
+      }
+
+      final textLength = _idEditingController.value.text.length;
+      _idEditingController.selection =
+          TextSelection(baseOffset: 0, extentOffset: textLength);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => _buildRemoteIDTextField(context);
 
   /// Callback for the connect button.
   /// Connects to the selected peer.
@@ -412,16 +429,24 @@ class _ConnectionPageState extends State<ConnectionPage>
   /// UI for the remote ID TextField.
   /// Search for a peer.
   Widget _buildRemoteIDTextField(BuildContext context) {
+    final compact = widget.compact;
     var w = Container(
-      width: 320 + 20 * 2,
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
+      width: compact ? double.infinity : 320 + 20 * 2,
+      padding: compact
+          ? const EdgeInsets.fromLTRB(12, 14, 12, 12)
+          : const EdgeInsets.fromLTRB(20, 24, 20, 22),
       decoration: BoxDecoration(
-          borderRadius: const BorderRadius.all(Radius.circular(13)),
+          borderRadius: BorderRadius.all(Radius.circular(compact ? 8 : 13)),
           border: Border.all(color: Theme.of(context).colorScheme.surface)),
       child: Ink(
         child: Column(
           children: [
-            getConnectionPageTitle(context, false).marginOnly(bottom: 15),
+            getConnectionPageTitle(
+              context,
+              false,
+              title: compact ? 'Połącz się' : null,
+            )
+                .marginOnly(bottom: compact ? 10 : 15),
             Row(
               children: [
                 Expanded(
@@ -488,9 +513,9 @@ class _ConnectionPageState extends State<ConnectionPage>
                           enableSuggestions: false,
                           keyboardType: TextInputType.visiblePassword,
                           focusNode: fieldFocusNode,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'WorkSans',
-                            fontSize: 22,
+                            fontSize: compact ? 18 : 22,
                             height: 1.4,
                           ),
                           maxLines: 1,
@@ -502,8 +527,9 @@ class _ConnectionPageState extends State<ConnectionPage>
                               hintText: _idInputFocused.value
                                   ? null
                                   : translate('Enter Remote ID'),
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 15, vertical: 13)),
+                              contentPadding: EdgeInsets.symmetric(
+                                  horizontal: compact ? 11 : 15,
+                                  vertical: compact ? 9 : 13)),
                           controller: fieldTextEditingController,
                           inputFormatters: [IDTextInputFormatter()],
                           onChanged: (v) {
@@ -553,7 +579,7 @@ class _ConnectionPageState extends State<ConnectionPage>
                                 child: ConstrainedBox(
                                   constraints: BoxConstraints(
                                     maxHeight: maxHeight,
-                                    maxWidth: 319,
+                                    maxWidth: compact ? 194 : 319,
                                   ),
                                   child: _allPeersLoader.peers.isEmpty &&
                                           !_allPeersLoader.isPeersLoaded
@@ -585,7 +611,7 @@ class _ConnectionPageState extends State<ConnectionPage>
               ],
             ),
             Padding(
-              padding: const EdgeInsets.only(top: 13.0),
+              padding: EdgeInsets.only(top: compact ? 10 : 13),
               child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
                 SizedBox(
                   height: 28.0,
@@ -682,6 +708,10 @@ class _ConnectionPageState extends State<ConnectionPage>
       ),
     );
     return Container(
-        constraints: const BoxConstraints(maxWidth: 600), child: w);
+      constraints: compact
+          ? const BoxConstraints()
+          : const BoxConstraints(maxWidth: 600),
+      child: w,
+    );
   }
 }

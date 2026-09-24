@@ -1135,6 +1135,10 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                   ),
                   _cardRow(
                       'Pamięć RAM', _formatBytes(card.host!.memoryTotalBytes)),
+                  _cardRow(
+                    'Lokalne adresy IP',
+                    card.host!.localIpAddresses.join('\n'),
+                  ),
                   _cardRow('Oczekujący restart',
                       card.host!.pendingReboot ? 'tak' : 'nie'),
                   if (card.device.hostHealth != null) ...[

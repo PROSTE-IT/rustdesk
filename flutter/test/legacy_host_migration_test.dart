@@ -24,6 +24,53 @@ void main() {
     expect(coordinator.tryBegin('123:1'), isFalse);
   });
 
+  test('waits for ten idle seconds after the latest technician input', () {
+    final coordinator = LegacyHostMigrationCoordinator();
+    final startedAt = DateTime.utc(2026, 9, 24, 10);
+
+    expect(coordinator.autoPromptDelayRemaining('123:1', now: startedAt),
+        isNull);
+    coordinator.noteTechnicianInput('123:1', at: startedAt);
+    expect(
+      coordinator.autoPromptDelayRemaining(
+        '123:1',
+        now: startedAt.add(const Duration(seconds: 4)),
+      ),
+      const Duration(seconds: 6),
+    );
+
+    coordinator.noteTechnicianInput(
+      '123:1',
+      at: startedAt.add(const Duration(seconds: 7)),
+    );
+    expect(
+      coordinator.autoPromptDelayRemaining(
+        '123:1',
+        now: startedAt.add(const Duration(seconds: 12)),
+      ),
+      const Duration(seconds: 5),
+    );
+    expect(
+      coordinator.autoPromptDelayRemaining(
+        '123:1',
+        now: startedAt.add(const Duration(seconds: 17)),
+      ),
+      Duration.zero,
+    );
+  });
+
+  test('releasing a session clears its prompt and input state', () {
+    final coordinator = LegacyHostMigrationCoordinator();
+    final now = DateTime.utc(2026, 9, 24, 10);
+
+    coordinator.noteTechnicianInput('123:1', at: now);
+    expect(coordinator.reserveAutoPrompt('123:1'), isTrue);
+    coordinator.releaseSession('123:1');
+
+    expect(coordinator.autoPromptDelayRemaining('123:1', now: now), isNull);
+    expect(coordinator.reserveAutoPrompt('123:1'), isTrue);
+  });
+
   test('builds visible passive installer command with pinned signer', () {
     const subject =
         'CN=PROSTE IT Sp. z o.o., O=PROSTE IT Sp. z o.o., L=Ożarów Mazowiecki, S=Mazowieckie, C=PL';

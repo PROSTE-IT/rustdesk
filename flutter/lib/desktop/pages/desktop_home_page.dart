@@ -106,6 +106,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       buildTip(context),
       if (!isOutgoingOnly) buildIDBoard(context),
       if (!isOutgoingOnly) buildPasswordBoard(context),
+      if (!isIncomingOnly && supportAddressBookModel.enabled)
+        const Padding(
+          padding: EdgeInsets.fromLTRB(12, 2, 12, 0),
+          child: RemoteConnectionPanel(compact: true),
+        ),
       AnimatedBuilder(
         animation: supportAddressBookModel,
         builder: (_, __) => FutureBuilder<Widget>(
@@ -143,10 +148,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       ]);
     }
     final textColor = Theme.of(context).textTheme.titleLarge?.color;
+    final isSupportWorkspace =
+        !isIncomingOnly && supportAddressBookModel.enabled;
     return ChangeNotifierProvider.value(
       value: gFFI.serverModel,
       child: Container(
-        width: isIncomingOnly ? 280.0 : 200.0,
+        width: isIncomingOnly
+            ? 280.0
+            : isSupportWorkspace
+                ? 244.0
+                : 200.0,
         color: Theme.of(context).colorScheme.background,
         child: Stack(
           children: [
@@ -1320,31 +1331,43 @@ class _SupportActiveSessionsPanelState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Tooltip(
-                message: session.activityActive
-                    ? 'Aktywność w ciągu ostatnich 15 minut'
-                    : 'Brak aktywnego okna i interakcji przez 15 minut',
-                child: Icon(Icons.circle, size: 8, color: activityColor),
-              ),
-              const SizedBox(width: 6),
               Expanded(
-                child: Text(
-                  technician,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              Text(
-                activityLabel,
-                style: TextStyle(
-                  color: activityColor,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      technician,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Tooltip(
+                      message: session.activityActive
+                          ? 'Aktywność w ciągu ostatnich 15 minut'
+                          : 'Brak aktywnego okna i interakcji przez 15 minut',
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.circle, size: 8, color: activityColor),
+                          const SizedBox(width: 5),
+                          Text(
+                            activityLabel,
+                            style: TextStyle(
+                              color: activityColor,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 7),

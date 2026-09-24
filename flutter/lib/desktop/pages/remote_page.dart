@@ -17,6 +17,7 @@ import '../../common/widgets/dialog.dart';
 import '../../common/widgets/toolbar.dart';
 import '../../models/model.dart';
 import '../../models/input_model.dart';
+import '../../models/legacy_host_migration.dart';
 import '../../models/platform_model.dart';
 import '../../models/support_address_book_model.dart';
 import '../../models/support_session_activity_tracker.dart';
@@ -166,6 +167,28 @@ class _RemotePageState extends State<RemotePage>
     _supportActivityTracker.recordInteraction(
       windowActive: _supportWindowActive,
     );
+  }
+
+  void _markLegacyMigrationInteraction() {
+    final model = _ffi.ffiModel;
+    final pi = model.pi;
+    if (!_useSupportToolbar ||
+        !model.connectionReady ||
+        model.waitForFirstImage.isTrue ||
+        model.viewOnly ||
+        !model.keyboard ||
+        pi.platform != kPeerPlatformWindows ||
+        pi.version.isEmpty ||
+        versionCmp(pi.version, '1.4.9') >= 0) {
+      return;
+    }
+    legacyHostMigrationCoordinator
+        .noteTechnicianInput('${widget.id}:${_ffi.sessionId}');
+  }
+
+  void _markSupportKeyboardInteraction() {
+    _markSupportInteraction();
+    _markLegacyMigrationInteraction();
   }
 
   void _syncSupportToolbarInset(double value) {
@@ -811,6 +834,8 @@ class _RemotePageState extends State<RemotePage>
     if (closeSession) {
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
           overlays: SystemUiOverlay.values);
+      legacyHostMigrationCoordinator
+          .releaseSession('${widget.id}:${_ffi.sessionId}');
     }
     WakelockManager.disable(_uniqueKey);
     await Get.delete<FFI>(tag: widget.id);
@@ -855,7 +880,7 @@ class _RemotePageState extends State<RemotePage>
               color: kColorCanvas,
               child: RawKeyFocusScope(
                   focusNode: _rawKeyFocusNode,
-                  onInput: _markSupportInteraction,
+                  onInput: _markSupportKeyboardInteraction,
                   onFocusChange: (bool imageFocused) {
                     debugPrint(
                         "onFocusChange(window active:${!_isWindowBlur}) $imageFocused");
@@ -1063,6 +1088,7 @@ class _RemotePageState extends State<RemotePage>
         if (!_rawKeyFocusNode.hasFocus) {
           _rawKeyFocusNode.requestFocus();
         }
+        _markLegacyMigrationInteraction();
       },
       onInput: _markSupportInteraction,
       inputModel: _ffi.inputModel,

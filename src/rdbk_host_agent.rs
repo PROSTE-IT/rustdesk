@@ -373,6 +373,10 @@ fn heartbeat_payload(system: &System, metrics: Option<Value>) -> Value {
         "hardware_fingerprint".to_owned(),
         json!(hardware_fingerprint()),
     );
+    payload.insert(
+        "local_ip_addresses".to_owned(),
+        json!(local_ip_addresses()),
+    );
     payload.insert("entra_tenant_id".to_owned(), json!(entra_tenant_id()));
     payload.insert("ad_domain_name".to_owned(), json!(ad_domain_name()));
     payload.insert("ad_domain_sid".to_owned(), json!(ad_domain_sid()));
@@ -609,6 +613,38 @@ fn network_fingerprint() -> String {
         "$r=Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue|Where-Object {$_.NextHop -ne '0.0.0.0'}|Sort-Object RouteMetric|Select-Object -First 1;if($r){$n=Get-NetNeighbor -InterfaceIndex $r.InterfaceIndex -IPAddress $r.NextHop -ErrorAction SilentlyContinue|Select-Object -First 1;if($n){$n.LinkLayerAddress+'|'+$r.NextHop}}",
     );
     hash_identifier(gateway.trim())
+}
+
+fn local_ip_addresses() -> Vec<String> {
+    let mut ipv4 = BTreeSet::new();
+    let mut ipv6 = BTreeSet::new();
+    for interface in default_net::get_interfaces() {
+        for network in interface.ipv4 {
+            let address = network.addr;
+            if !address.is_loopback()
+                && !address.is_unspecified()
+                && !address.is_multicast()
+                && !address.is_broadcast()
+            {
+                ipv4.insert(address.to_string());
+            }
+        }
+        for network in interface.ipv6 {
+            let address = network.addr;
+            if !address.is_loopback()
+                && !address.is_unspecified()
+                && !address.is_multicast()
+                && !address.is_unicast_link_local()
+            {
+                ipv6.insert(address.to_string());
+            }
+        }
+    }
+    ipv4
+        .into_iter()
+        .chain(ipv6)
+        .take(32)
+        .collect()
 }
 
 fn nearby_rustdesk_ids() -> Vec<String> {
