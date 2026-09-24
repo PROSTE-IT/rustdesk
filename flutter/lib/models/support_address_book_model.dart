@@ -163,6 +163,10 @@ double? _supportDouble(dynamic value) =>
     value == null ? null : double.tryParse(value.toString());
 
 class SupportHostHealth {
+  final String cpuName;
+  final int? cpuLogicalCount;
+  final int? memoryTotalBytes;
+  final List<String> localIpAddresses;
   final double? cpuHourAverage;
   final double? memoryHourAverage;
   final bool cpuAlert;
@@ -179,6 +183,10 @@ class SupportHostHealth {
   final DateTime? metricsUpdatedAt;
 
   const SupportHostHealth({
+    required this.cpuName,
+    required this.cpuLogicalCount,
+    required this.memoryTotalBytes,
+    required this.localIpAddresses,
     required this.cpuHourAverage,
     required this.memoryHourAverage,
     required this.cpuAlert,
@@ -222,6 +230,15 @@ class SupportHostHealth {
         ? json['requires_attention'] == true
         : cpuAlert || memoryAlert || diskAlerts.isNotEmpty || criticalAlert;
     return SupportHostHealth(
+      cpuName: json['cpu_name']?.toString() ?? '',
+      cpuLogicalCount:
+          int.tryParse(json['cpu_logical_count']?.toString() ?? ''),
+      memoryTotalBytes:
+          int.tryParse(json['memory_total_bytes']?.toString() ?? ''),
+      localIpAddresses: (json['local_ip_addresses'] as List? ?? const [])
+          .map((item) => item.toString())
+          .where((item) => item.isNotEmpty)
+          .toList(),
       cpuHourAverage: _supportDouble(json['cpu_hour_average']),
       memoryHourAverage: _supportDouble(json['memory_hour_average']),
       cpuAlert: cpuAlert,

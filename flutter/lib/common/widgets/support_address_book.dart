@@ -679,6 +679,14 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                     device.deviceType == 'server' ? 'Serwer' : 'Komputer',
                     Theme.of(context).colorScheme.primary,
                   ),
+                  if (device.isInstalled != null)
+                    _deviceBadge(
+                      device.isInstalled! ? 'Zainstalowany' : 'Przenośny',
+                      Theme.of(context).colorScheme.secondary,
+                      tooltip: device.rustdeskVersion.isEmpty
+                          ? 'Wersja RustDesk nieznana'
+                          : 'RustDesk ${device.rustdeskVersion}',
+                    ),
                   if (device.isShared)
                     _deviceBadge('Współdzielony', Colors.indigo),
                   ..._healthBadges(device),
@@ -751,6 +759,9 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                 _deviceBadge(
                   device.isInstalled! ? 'Zainstalowany' : 'Przenośny',
                   Theme.of(context).colorScheme.secondary,
+                  tooltip: device.rustdeskVersion.isEmpty
+                      ? 'Wersja RustDesk nieznana'
+                      : 'RustDesk ${device.rustdeskVersion}',
                 ),
               if (device.isShared) _deviceBadge('Współdzielony', Colors.indigo),
               ..._healthBadges(device),
@@ -814,6 +825,25 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
           final displays = device.displayCount == null
               ? 'Liczba ekranów nieznana'
               : '${device.displayCount} ${_displayCountLabel(device.displayCount!)}';
+          final monitors = device.isHeadless == true
+              ? 'Bez monitora'
+              : '$displays • $display';
+          final health = device.hostHealth;
+          final cpu = health == null || health.cpuName.isEmpty
+              ? 'CPU: brak danych'
+              : [
+                  'CPU: ${health.cpuName}',
+                  if (health.cpuLogicalCount != null)
+                    '${health.cpuLogicalCount} wątków',
+                ].join(' • ');
+          final memory = _formatBytes(health?.memoryTotalBytes);
+          final disks = _diskCapacitySummary(health);
+          final addresses = _ipAddressSummary(health?.localIpAddresses);
+          final specification = [
+            'RAM: ${memory.isEmpty ? 'brak danych' : memory} • Dyski: ${disks.isEmpty ? 'brak danych' : disks}',
+            'IP: $addresses',
+            'Monitory: $monitors',
+          ].join('\n');
           final lastSession = device.lastConnectedAt == null
               ? 'Brak historii połączeń'
               : 'Sesja: ${_formatSupportDate(device.lastConnectedAt)}';
@@ -835,12 +865,12 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
               ),
               _deviceInfoTile(
                 width: tileWidth,
-                icon: Icons.monitor_outlined,
-                label: 'Ekrany i klient',
-                primary: '$displays • $display',
-                secondary: device.rustdeskVersion.isEmpty
-                    ? 'Wersja RustDesk nieznana'
-                    : 'RustDesk ${device.rustdeskVersion}',
+                icon: Icons.memory_outlined,
+                label: 'Specyfikacja',
+                primary: cpu,
+                secondary: specification,
+                primaryMaxLines: 1,
+                secondaryMaxLines: 3,
               ),
               _deviceInfoTile(
                 width: tileWidth,
@@ -852,21 +882,6 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                 secondary: [lastSession, technician]
                     .where((v) => v.isNotEmpty)
                     .join(' • '),
-              ),
-              _deviceInfoTile(
-                width: tileWidth,
-                icon: Icons.settings_applications_outlined,
-                label: 'Uruchomienie',
-                primary: device.isInstalled == null
-                    ? 'Tryb uruchomienia nieznany'
-                    : device.isInstalled!
-                        ? 'Klient zainstalowany'
-                        : 'Tryb przenośny',
-                secondary: device.isHeadless == null
-                    ? ''
-                    : device.isHeadless!
-                        ? 'Bez monitora'
-                        : 'Monitor dostępny',
               ),
               if (device.hostHealth != null)
                 _deviceInfoTile(
@@ -892,16 +907,38 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
     return 'ekranów';
   }
 
+  String _diskCapacitySummary(SupportHostHealth? health) {
+    if (health == null || health.latestDisks.isEmpty) return '';
+    return health.latestDisks
+        .map((disk) {
+          final name = disk['name']?.toString() ?? 'Dysk';
+          final total = int.tryParse(disk['total_bytes']?.toString() ?? '');
+          final capacity = _formatBytes(total);
+          return capacity.isEmpty ? '' : '$name $capacity';
+        })
+        .where((value) => value.isNotEmpty)
+        .join(', ');
+  }
+
+  String _ipAddressSummary(List<String>? addresses) {
+    if (addresses == null || addresses.isEmpty) return 'brak danych';
+    final visible = addresses.take(2).join(', ');
+    final remaining = addresses.length - 2;
+    return remaining > 0 ? '$visible (+$remaining)' : visible;
+  }
+
   Widget _deviceInfoTile({
     required double width,
     required IconData icon,
     required String label,
     required String primary,
     required String secondary,
+    int primaryMaxLines = 2,
+    int secondaryMaxLines = 2,
   }) =>
       Container(
         width: width,
-        constraints: const BoxConstraints(minHeight: 88),
+        constraints: const BoxConstraints(minHeight: 116),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -920,7 +957,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
             const SizedBox(height: 7),
             Text(
               primary,
-              maxLines: 2,
+              maxLines: primaryMaxLines,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
@@ -928,7 +965,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
               const SizedBox(height: 3),
               Text(
                 secondary,
-                maxLines: 2,
+                maxLines: secondaryMaxLines,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
@@ -937,11 +974,18 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
         ),
       );
 
-  Widget _deviceBadge(String label, Color color) => Chip(
-        avatar: Icon(Icons.circle, color: color, size: 10),
-        label: Text(label),
-        visualDensity: VisualDensity.compact,
-      );
+  Widget _deviceBadge(
+    String label,
+    Color color, {
+    String tooltip = '',
+  }) {
+    final chip = Chip(
+      avatar: Icon(Icons.circle, color: color, size: 10),
+      label: Text(label),
+      visualDensity: VisualDensity.compact,
+    );
+    return tooltip.isEmpty ? chip : Tooltip(message: tooltip, child: chip);
+  }
 
   bool _needsAttention(SupportDevice device) =>
       device.hostHealth?.hasAlert ?? false;
@@ -1244,7 +1288,11 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
 
   String _formatBytes(int? bytes) {
     if (bytes == null || bytes <= 0) return '';
-    return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
+    final gibibytes = bytes / 1024 / 1024 / 1024;
+    if (gibibytes >= 1024) {
+      return '${(gibibytes / 1024).toStringAsFixed(1)} TB';
+    }
+    return '${gibibytes.toStringAsFixed(1)} GB';
   }
 
   String _proposalSummary(SupportAutomationProposal proposal) {

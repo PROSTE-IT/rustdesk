@@ -35,6 +35,7 @@ on:
       - flutter/lib/models/support_session_activity_tracker.dart
       - flutter/test/support_session_activity_tracker_test.dart
       - flutter/test/legacy_host_migration_test.dart
+      - flutter/test/support_host_data_test.dart
       - flutter/lib/utils/multi_window_manager.dart
       - .github/workflows/proste-it-address-book-ci.yml
       - flutter/lib/models/support_secure_storage*.dart
@@ -83,6 +84,7 @@ jobs:
             lib/utils/multi_window_manager.dart
             test/support_session_activity_tracker_test.dart
             test/legacy_host_migration_test.dart
+            test/support_host_data_test.dart
           )
           dart format "${files[@]}"
           git diff --exit-code -- "${files[@]}"
@@ -132,12 +134,13 @@ jobs:
             dart analyze "$source"
           done
 
-      - name: Test support session and host migration helpers
+      - name: Test support session and host helpers
         working-directory: flutter
         run: >-
           flutter test
           test/support_session_activity_tracker_test.dart
           test/legacy_host_migration_test.dart
+          test/support_host_data_test.dart
 
       - name: Validate Python build script
         run: python -m py_compile build.py res/msi/preprocess.py

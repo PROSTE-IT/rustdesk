@@ -21,6 +21,32 @@ void main() {
     expect(health.hasAlert, isFalse);
   });
 
+  test('parses hardware specification used by the device card', () {
+    final health = SupportHostHealth.fromJson({
+      'cpu_name': 'Intel Xeon E5-2690',
+      'cpu_logical_count': 16,
+      'memory_total_bytes': 32 * 1024 * 1024 * 1024,
+      'local_ip_addresses': ['192.168.10.25', '10.0.0.25'],
+      'latest_disks': [
+        {
+          'name': 'C:',
+          'total_bytes': 512 * 1024 * 1024 * 1024,
+          'free_bytes': 128 * 1024 * 1024 * 1024,
+          'used_percent': 75,
+        },
+      ],
+    });
+
+    expect(health.cpuName, 'Intel Xeon E5-2690');
+    expect(health.cpuLogicalCount, 16);
+    expect(health.memoryTotalBytes, 32 * 1024 * 1024 * 1024);
+    expect(health.localIpAddresses, ['192.168.10.25', '10.0.0.25']);
+    expect(
+      health.latestDisks.single['total_bytes'],
+      512 * 1024 * 1024 * 1024,
+    );
+  });
+
   test('critical older than 24 hours does not require attention', () {
     final occurredAt = DateTime.now()
         .toUtc()
