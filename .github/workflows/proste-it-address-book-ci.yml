@@ -34,11 +34,13 @@ on:
       - flutter/lib/models/peer_tab_model.dart
       - flutter/lib/models/support_address_book_model.dart
       - flutter/lib/models/support_device_filter.dart
+      - flutter/lib/models/support_server_resolution.dart
       - flutter/lib/models/support_session_activity_tracker.dart
       - flutter/test/support_session_activity_tracker_test.dart
       - flutter/test/legacy_host_migration_test.dart
       - flutter/test/support_host_data_test.dart
       - flutter/test/support_device_filter_test.dart
+      - flutter/test/support_server_resolution_test.dart
       - flutter/lib/utils/multi_window_manager.dart
       - .github/workflows/proste-it-address-book-ci.yml
       - flutter/lib/models/support_secure_storage*.dart
