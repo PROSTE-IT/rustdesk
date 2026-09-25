@@ -1202,6 +1202,13 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                   ),
                   _cardRow('Oczekujący restart',
                       card.host!.pendingReboot ? 'tak' : 'nie'),
+                  const Divider(height: 24),
+                  _HostAlertPreferences(
+                    deviceId: card.device.id,
+                    initialCpuAlertEnabled: card.host!.cpuAlertEnabled,
+                    initialMemoryAlertEnabled:
+                        card.host!.memoryAlertEnabled,
+                  ),
                   if (card.device.hostHealth != null) ...[
                     _cardRow(
                       'Średnia z ostatniej godziny',
@@ -1352,6 +1359,112 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
       _showError(error);
     }
   }
+}
+
+class _HostAlertPreferences extends StatefulWidget {
+  final String deviceId;
+  final bool initialCpuAlertEnabled;
+  final bool initialMemoryAlertEnabled;
+
+  const _HostAlertPreferences({
+    required this.deviceId,
+    required this.initialCpuAlertEnabled,
+    required this.initialMemoryAlertEnabled,
+  });
+
+  @override
+  State<_HostAlertPreferences> createState() => _HostAlertPreferencesState();
+}
+
+class _HostAlertPreferencesState extends State<_HostAlertPreferences> {
+  late bool _cpuAlertEnabled;
+  late bool _memoryAlertEnabled;
+  bool _saving = false;
+  String _error = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _cpuAlertEnabled = widget.initialCpuAlertEnabled;
+    _memoryAlertEnabled = widget.initialMemoryAlertEnabled;
+  }
+
+  Future<void> _update({
+    bool? cpuAlertEnabled,
+    bool? memoryAlertEnabled,
+  }) async {
+    final previousCpu = _cpuAlertEnabled;
+    final previousMemory = _memoryAlertEnabled;
+    setState(() {
+      _cpuAlertEnabled = cpuAlertEnabled ?? _cpuAlertEnabled;
+      _memoryAlertEnabled = memoryAlertEnabled ?? _memoryAlertEnabled;
+      _saving = true;
+      _error = '';
+    });
+    try {
+      await supportAddressBookModel.updateHostAlertPreferences(
+        deviceId: widget.deviceId,
+        cpuAlertEnabled: _cpuAlertEnabled,
+        memoryAlertEnabled: _memoryAlertEnabled,
+      );
+      if (!mounted) return;
+      setState(() => _saving = false);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _cpuAlertEnabled = previousCpu;
+        _memoryAlertEnabled = previousMemory;
+        _saving = false;
+        _error = error.toString();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Alerty zasobów',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const Padding(
+            padding: EdgeInsets.only(top: 4, bottom: 4),
+            child: Text('Alerty dysku i Critical są zawsze aktywne.'),
+          ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Alert CPU'),
+            subtitle: Text(_cpuAlertEnabled
+                ? 'Włączony dla tego hosta'
+                : 'Wyłączony dla tego hosta'),
+            value: _cpuAlertEnabled,
+            onChanged:
+                _saving ? null : (value) => _update(cpuAlertEnabled: value),
+          ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Alert RAM'),
+            subtitle: Text(_memoryAlertEnabled
+                ? 'Włączony dla tego hosta'
+                : 'Wyłączony dla tego hosta'),
+            value: _memoryAlertEnabled,
+            onChanged: _saving
+                ? null
+                : (value) => _update(memoryAlertEnabled: value),
+          ),
+          if (_saving)
+            const LinearProgressIndicator()
+          else if (_error.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                _error,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+        ],
+      );
 }
 
 class _SupportEmptyState extends StatelessWidget {

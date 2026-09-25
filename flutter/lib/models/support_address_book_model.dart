@@ -167,6 +167,8 @@ class SupportHostHealth {
   final List<String> localIpAddresses;
   final double? cpuHourAverage;
   final double? memoryHourAverage;
+  final bool cpuAlertEnabled;
+  final bool memoryAlertEnabled;
   final bool cpuAlert;
   final bool memoryAlert;
   final List<String> diskAlerts;
@@ -187,6 +189,8 @@ class SupportHostHealth {
     required this.localIpAddresses,
     required this.cpuHourAverage,
     required this.memoryHourAverage,
+    required this.cpuAlertEnabled,
+    required this.memoryAlertEnabled,
     required this.cpuAlert,
     required this.memoryAlert,
     required this.diskAlerts,
@@ -239,6 +243,8 @@ class SupportHostHealth {
           .toList(),
       cpuHourAverage: _supportDouble(json['cpu_hour_average']),
       memoryHourAverage: _supportDouble(json['memory_hour_average']),
+      cpuAlertEnabled: json['cpu_alert_enabled'] != false,
+      memoryAlertEnabled: json['memory_alert_enabled'] != false,
       cpuAlert: cpuAlert,
       memoryAlert: memoryAlert,
       diskAlerts: diskAlerts,
@@ -367,6 +373,8 @@ class SupportHostData {
   final List<String> localIpAddresses;
   final String clientVersion;
   final bool pendingReboot;
+  final bool cpuAlertEnabled;
+  final bool memoryAlertEnabled;
   final List<SupportHostMetric> metrics;
   final List<SupportHostUser> users;
   final List<SupportAutomationProposal> proposals;
@@ -383,6 +391,8 @@ class SupportHostData {
     required this.localIpAddresses,
     required this.clientVersion,
     required this.pendingReboot,
+    required this.cpuAlertEnabled,
+    required this.memoryAlertEnabled,
     required this.metrics,
     required this.users,
     required this.proposals,
@@ -406,6 +416,8 @@ class SupportHostData {
             .toList(),
         clientVersion: json['client_version']?.toString() ?? '',
         pendingReboot: json['pending_reboot'] == true,
+        cpuAlertEnabled: json['cpu_alert_enabled'] != false,
+        memoryAlertEnabled: json['memory_alert_enabled'] != false,
         metrics: (json['metrics'] as List? ?? const [])
             .whereType<Map>()
             .map((item) =>
@@ -1439,6 +1451,23 @@ class SupportAddressBookModel with ChangeNotifier {
       activeSessions: sessions('active_sessions'),
       sessions: sessions('sessions'),
     );
+  }
+
+  Future<void> updateHostAlertPreferences({
+    required String deviceId,
+    required bool cpuAlertEnabled,
+    required bool memoryAlertEnabled,
+  }) async {
+    final response = await http.post(
+      _uri('api/v1/devices/$deviceId/alert-preferences/'),
+      headers: _headers(),
+      body: jsonEncode({
+        'cpu_alert_enabled': cpuAlertEnabled,
+        'memory_alert_enabled': memoryAlertEnabled,
+      }),
+    );
+    _requireSuccess(response);
+    await refresh();
   }
 
   Future<SupportPresence> presence(String rustdeskId) async {

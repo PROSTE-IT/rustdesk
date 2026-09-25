@@ -8,6 +8,24 @@ void main() {
     });
 
     expect(host.localIpAddresses, ['192.168.10.25', 'fd00::25']);
+    expect(host.cpuAlertEnabled, isTrue);
+    expect(host.memoryAlertEnabled, isTrue);
+  });
+
+  test('parses per-host CPU and RAM alert preferences', () {
+    final host = SupportHostData.fromJson({
+      'cpu_alert_enabled': false,
+      'memory_alert_enabled': false,
+    });
+    final health = SupportHostHealth.fromJson({
+      'cpu_alert_enabled': false,
+      'memory_alert_enabled': false,
+    });
+
+    expect(host.cpuAlertEnabled, isFalse);
+    expect(host.memoryAlertEnabled, isFalse);
+    expect(health.cpuAlertEnabled, isFalse);
+    expect(health.memoryAlertEnabled, isFalse);
   });
 
   test('pending reboot alone does not require attention', () {
