@@ -142,6 +142,7 @@ jobs:
           flutter test
           test/support_session_activity_tracker_test.dart
           test/legacy_host_migration_test.dart
+          test/support_host_data_test.dart
 
       - name: Validate Python build script
         run: python -m py_compile build.py res/msi/preprocess.py

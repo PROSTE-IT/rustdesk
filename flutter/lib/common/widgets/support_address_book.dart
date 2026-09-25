@@ -7,16 +7,6 @@ import 'package:flutter_hbb/models/peer_tab_model.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/support_address_book_model.dart';
 
-enum _SupportDeviceFilter {
-  all,
-  attention,
-  online,
-  offline,
-  servers,
-  computers,
-  shared,
-}
-
 enum _SupportDeviceView { list, tiles }
 
 const _supportDeviceViewOption = 'proste-it-support-device-view';
@@ -41,7 +31,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
   final _searchController = TextEditingController();
   Timer? _onlineTimer;
   Timer? _syncTimer;
-  _SupportDeviceFilter _filter = _SupportDeviceFilter.all;
+  final Set<SupportDeviceFilter> _filters = {};
   _SupportDeviceView _deviceView = _SupportDeviceView.tiles;
   String? _selectedCustomerId;
 
@@ -353,23 +343,62 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
 
   Widget _buildFilters() {
     const labels = {
-      _SupportDeviceFilter.all: 'Wszystkie',
-      _SupportDeviceFilter.attention: 'Wymagają uwagi',
-      _SupportDeviceFilter.online: 'Online',
-      _SupportDeviceFilter.offline: 'Offline',
-      _SupportDeviceFilter.servers: 'Serwery',
-      _SupportDeviceFilter.computers: 'Komputery',
-      _SupportDeviceFilter.shared: 'Współdzielone',
+      SupportDeviceFilter.attention: 'Wymagają uwagi',
+      SupportDeviceFilter.online: 'Online',
+      SupportDeviceFilter.offline: 'Offline',
+      SupportDeviceFilter.servers: 'Serwery',
+      SupportDeviceFilter.computers: 'Komputery',
+      SupportDeviceFilter.shared: 'Współdzielone',
     };
-    return Wrap(
-      spacing: 4,
-      children: _SupportDeviceFilter.values
-          .map((filter) => ChoiceChip(
-                label: Text(labels[filter]!),
-                selected: _filter == filter,
-                onSelected: (_) => setState(() => _filter = filter),
-              ))
-          .toList(),
+    final buttonLabel = _filters.isEmpty
+        ? 'Wszystkie'
+        : _filters.length == 1
+            ? labels[_filters.single]!
+            : 'Filtry (${_filters.length})';
+    final selectedLabels = _filters.map((filter) => labels[filter]!).join(', ');
+    return MenuAnchor(
+      menuChildren: [
+        MenuItemButton(
+          key: const ValueKey('support-device-filter-all'),
+          leadingIcon: Icon(
+            _filters.isEmpty
+                ? Icons.radio_button_checked
+                : Icons.radio_button_unchecked,
+          ),
+          onPressed: () => setState(_filters.clear),
+          child: const Text('Wszystkie'),
+        ),
+        const Divider(height: 1),
+        ...SupportDeviceFilter.values.map((filter) {
+          final selected = _filters.contains(filter);
+          return MenuItemButton(
+            key: ValueKey('support-device-filter-${filter.name}'),
+            closeOnActivate: false,
+            leadingIcon: Icon(
+              selected ? Icons.check_box : Icons.check_box_outline_blank,
+            ),
+            onPressed: () => setState(() {
+              if (selected) {
+                _filters.remove(filter);
+              } else {
+                _filters.add(filter);
+              }
+            }),
+            child: Text(labels[filter]!),
+          );
+        }),
+      ],
+      builder: (context, controller, child) => Tooltip(
+        message: _filters.isEmpty ? 'Wszystkie urządzenia' : selectedLabels,
+        child: OutlinedButton.icon(
+          key: const ValueKey('support-device-filter-menu'),
+          onPressed: () => controller.isOpen
+              ? controller.close()
+              : controller.open(),
+          icon: const Icon(Icons.filter_list),
+          label: Text(buttonLabel),
+        ),
+      ),
     );
   }
 
@@ -1061,22 +1090,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
   }
 
   bool _matchesFilter(SupportDevice device) {
-    switch (_filter) {
-      case _SupportDeviceFilter.all:
-        return true;
-      case _SupportDeviceFilter.attention:
-        return _needsAttention(device);
-      case _SupportDeviceFilter.online:
-        return device.online;
-      case _SupportDeviceFilter.offline:
-        return !device.online;
-      case _SupportDeviceFilter.servers:
-        return device.deviceType == 'server';
-      case _SupportDeviceFilter.computers:
-        return device.deviceType != 'server';
-      case _SupportDeviceFilter.shared:
-        return device.isShared;
-    }
+    return matchesSupportDeviceFilters(device, _filters);
   }
 
   int _compareDevices(SupportDevice left, SupportDevice right) {
