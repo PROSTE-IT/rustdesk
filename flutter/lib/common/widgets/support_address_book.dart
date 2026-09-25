@@ -1206,8 +1206,7 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
                   _HostAlertPreferences(
                     deviceId: card.device.id,
                     initialCpuAlertEnabled: card.host!.cpuAlertEnabled,
-                    initialMemoryAlertEnabled:
-                        card.host!.memoryAlertEnabled,
+                    initialMemoryAlertEnabled: card.host!.memoryAlertEnabled,
                   ),
                   if (card.device.hostHealth != null) ...[
                     _cardRow(
@@ -1449,9 +1448,8 @@ class _HostAlertPreferencesState extends State<_HostAlertPreferences> {
                 ? 'Włączony dla tego hosta'
                 : 'Wyłączony dla tego hosta'),
             value: _memoryAlertEnabled,
-            onChanged: _saving
-                ? null
-                : (value) => _update(memoryAlertEnabled: value),
+            onChanged:
+                _saving ? null : (value) => _update(memoryAlertEnabled: value),
           ),
           if (_saving)
             const LinearProgressIndicator()
