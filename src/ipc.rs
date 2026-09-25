@@ -1924,9 +1924,7 @@ pub async fn notify_server_to_check_hwcodec() -> ResultType<()> {
 pub async fn get_controlled_session_count(ms_timeout: u64) -> ResultType<usize> {
     let mut connection = connect(ms_timeout, "").await?;
     connection.send(&Data::ControlledSessionCount(0)).await?;
-    if let Some(Data::ControlledSessionCount(count)) =
-        connection.next_timeout(ms_timeout).await?
-    {
+    if let Some(Data::ControlledSessionCount(count)) = connection.next_timeout(ms_timeout).await? {
         return Ok(count);
     }
     bail!("Failed to get controlled session count");

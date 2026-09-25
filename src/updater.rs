@@ -130,9 +130,7 @@ fn install_managed_windows_update(
 }
 
 #[cfg(target_os = "windows")]
-fn has_no_managed_windows_active_conns(
-    activity_source: ManagedWindowsActivitySource,
-) -> bool {
+fn has_no_managed_windows_active_conns(activity_source: ManagedWindowsActivitySource) -> bool {
     if !has_no_active_conns() {
         return false;
     }

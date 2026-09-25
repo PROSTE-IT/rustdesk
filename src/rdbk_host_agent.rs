@@ -267,10 +267,7 @@ fn run() -> hbb_common::ResultType<()> {
                         "RDBK host identity no longer matches this RustDesk ID; generating a replacement identity"
                     );
                     installation_id = Uuid::new_v4().to_string();
-                    Config::set_option(
-                        INSTALLATION_ID_OPTION.to_owned(),
-                        installation_id.clone(),
-                    );
+                    Config::set_option(INSTALLATION_ID_OPTION.to_owned(), installation_id.clone());
                     token.clear();
                     store_token("");
                     next_heartbeat = Instant::now() + Duration::from_secs(5);
