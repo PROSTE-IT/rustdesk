@@ -1735,7 +1735,9 @@ class _LegacyHostMigrationButton extends StatefulWidget {
 class _LegacyHostMigrationButtonState
     extends State<_LegacyHostMigrationButton> {
   bool _promptOpen = false;
+  bool _blinkOn = true;
   Timer? _autoPromptTimer;
+  Timer? _blinkTimer;
 
   String get _sessionKey => '${widget.id}:${widget.ffi.sessionId}';
 
@@ -1747,6 +1749,15 @@ class _LegacyHostMigrationButtonState
   void initState() {
     super.initState();
     legacyHostMigrationCoordinator.addListener(_scheduleAutoPrompt);
+    _blinkTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final shouldBlink = _eligible && !_busy && !_started;
+      if (shouldBlink) {
+        setState(() => _blinkOn = !_blinkOn);
+      } else if (!_blinkOn) {
+        setState(() => _blinkOn = true);
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _scheduleAutoPrompt();
     });
@@ -1759,6 +1770,7 @@ class _LegacyHostMigrationButtonState
         oldWidget.ffi.sessionId != widget.ffi.sessionId) {
       _autoPromptTimer?.cancel();
       _autoPromptTimer = null;
+      _blinkOn = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _scheduleAutoPrompt();
       });
@@ -1769,6 +1781,7 @@ class _LegacyHostMigrationButtonState
   void dispose() {
     legacyHostMigrationCoordinator.removeListener(_scheduleAutoPrompt);
     _autoPromptTimer?.cancel();
+    _blinkTimer?.cancel();
     super.dispose();
   }
 
@@ -1803,7 +1816,7 @@ class _LegacyHostMigrationButtonState
       tooltip: _started
           ? 'Polecenie instalacji nowego Helpdeska zostało wysłane do hosta'
           : 'Host ma RustDesk ${widget.ffi.ffiModel.pi.version}; uruchom migrację do wersji zarządzanej',
-      active: !_started,
+      active: !_started && (_busy || _blinkOn),
       onPressed: _busy || _started ? null : () => _promptAndStart(manual: true),
     );
   }
