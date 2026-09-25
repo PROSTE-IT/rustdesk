@@ -26,8 +26,7 @@ SupportDisplayResolution? highestSupportDisplayResolution(
     if (!resolution.isValid) continue;
     if (highest == null ||
         resolution.area > highest.area ||
-        (resolution.area == highest.area &&
-            resolution.width > highest.width)) {
+        (resolution.area == highest.area && resolution.width > highest.width)) {
       highest = resolution;
     }
   }
