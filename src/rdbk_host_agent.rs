@@ -17,12 +17,14 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeSet,
+    os::windows::process::CommandExt,
     process::Command,
     sync::Once,
     thread,
     time::{Duration, Instant},
 };
 use uuid::Uuid;
+use winapi::um::winbase::CREATE_NO_WINDOW;
 use winreg::{enums::*, RegKey};
 
 const INSTALLATION_ID_OPTION: &str = "rdbk-host-installation-id";
@@ -735,6 +737,7 @@ fn powershell_output(script: &str) -> String {
             "-Command",
             script,
         ])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .ok()
         .filter(|output| output.status.success())

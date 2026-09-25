@@ -12,6 +12,9 @@ use std::{
 };
 
 #[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
 const SUPPORT_UPDATE_MAX_BYTES: u64 = 200 * 1024 * 1024;
 
 enum UpdateMsg {
@@ -268,6 +271,7 @@ fn verify_managed_windows_signature(installer: &std::path::Path) -> ResultType<(
             "-Command",
             "$s=Get-AuthenticodeSignature -LiteralPath $env:RDBK_UPDATE_PATH;if($s.Status -ne 'Valid'){exit 2};if($env:RDBK_SIGNER_SUBJECT -and $s.SignerCertificate.Subject -ne $env:RDBK_SIGNER_SUBJECT){exit 3}",
         ])
+        .creation_flags(winapi::um::winbase::CREATE_NO_WINDOW)
         .status()?;
     if !status.success() {
         bail!("Podpis cyfrowy instalatora jest nieprawidłowy lub pochodzi od innego wydawcy.");
