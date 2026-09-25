@@ -1946,20 +1946,11 @@ class _LegacyHostMigrationButtonState
     }
     final stem = 'PROSTEIT-HostMigration-$safeAttempt';
     final remoteHome = widget.ffi.fileModel.remoteController.homePath;
-    final driveMatch = RegExp(r'^([a-zA-Z]:)').firstMatch(remoteHome);
-    final systemDrive = driveMatch?.group(1) ?? 'C:';
-    final remoteDirectory = '$systemDrive\\Users\\Public\\Documents';
-
-    try {
-      await widget.ffi.fileModel.fileFetcher
-          .fetchDirectory(remoteDirectory, false, false)
-          .timeout(const Duration(seconds: 15));
-    } catch (error) {
-      throw SupportAddressBookException(
-        'Nie można otworzyć katalogu transferowego hosta '
-        '($remoteDirectory): $error',
-      );
-    }
+    final remoteDirectories = legacyHostMigrationStageDirectories(
+      remoteHome: remoteHome,
+      remoteCurrentDirectory:
+          widget.ffi.fileModel.remoteController.directory.value.path,
+    );
 
     final localDirectory =
         await Directory.systemTemp.createTemp('prosteit-host-migration-');
@@ -1993,7 +1984,33 @@ class _LegacyHostMigrationButtonState
         ),
       ]);
 
-      for (final file in [localExe, localMsi, localScript]) {
+      // Probe the shared Public Documents path with the small launcher first.
+      // It remains readable after logging in as another Windows user. If that
+      // path is unavailable, fall back to a directory already reported by the
+      // peer instead of issuing a separate, timeout-prone directory listing.
+      String? remoteDirectory;
+      Object? lastStageError;
+      for (final candidate in remoteDirectories) {
+        try {
+          await _transferMigrationFile(
+            localScript,
+            '$candidate\\${localScript.uri.pathSegments.last}',
+            timeout: const Duration(seconds: 30),
+          );
+          remoteDirectory = candidate;
+          break;
+        } catch (error) {
+          lastStageError = error;
+        }
+      }
+      if (remoteDirectory == null) {
+        throw SupportAddressBookException(
+          'Nie udało się przesłać planu migracji do żadnego bezpiecznego '
+          'katalogu hosta: $lastStageError',
+        );
+      }
+      // The command is sent only after the peer acknowledges both installers.
+      for (final file in [localExe, localMsi]) {
         await _transferMigrationFile(
           file,
           '$remoteDirectory\\${file.uri.pathSegments.last}',
@@ -2051,7 +2068,11 @@ class _LegacyHostMigrationButtonState
     }
   }
 
-  Future<void> _transferMigrationFile(File file, String remotePath) async {
+  Future<void> _transferMigrationFile(
+    File file,
+    String remotePath, {
+    Duration timeout = const Duration(minutes: 10),
+  }) async {
     if (widget.ffi.closed) {
       throw const SupportAddressBookException(
           'Sesja została zamknięta przed transferem aktualizacji.');
@@ -2065,17 +2086,28 @@ class _LegacyHostMigrationButtonState
       ..size = stat.size;
     final controller = widget.ffi.fileModel.jobController;
     final jobId = controller.addTransferJob(entry, false);
-    await bind.sessionSendFiles(
-      sessionId: widget.ffi.sessionId,
-      actId: jobId,
-      path: file.path,
-      to: remotePath,
-      fileNum: 0,
-      includeHidden: false,
-      isRemote: false,
-      isDir: false,
-    );
-    final deadline = DateTime.now().add(const Duration(minutes: 10));
+    // A retry can encounter a file left by an interrupted Support process.
+    // Register the job so RustDesk handles the overwrite decision instead of
+    // silently ignoring the peer's conflict response and waiting forever.
+    controller.registerTransferConflictBatch([jobId]);
+    try {
+      await bind.sessionSendFiles(
+        sessionId: widget.ffi.sessionId,
+        actId: jobId,
+        path: file.path,
+        to: remotePath,
+        fileNum: 0,
+        includeHidden: false,
+        isRemote: false,
+        isDir: false,
+      );
+    } catch (_) {
+      try {
+        await controller.cancelJob(jobId);
+      } catch (_) {}
+      rethrow;
+    }
+    final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
       if (widget.ffi.closed) {
         throw const SupportAddressBookException(
@@ -2087,7 +2119,14 @@ class _LegacyHostMigrationButtonState
             'Nie udało się potwierdzić transferu aktualizacji.');
       }
       final job = controller.jobTable[index];
-      if (job.state == JobState.done) return;
+      if (job.state == JobState.done) {
+        if (job.err.isNotEmpty) {
+          throw SupportAddressBookException(
+            'Transfer ${entry.name} nie został potwierdzony: ${job.err}',
+          );
+        }
+        return;
+      }
       if (job.state == JobState.error) {
         throw SupportAddressBookException(
           'Transfer ${entry.name} nie powiódł się: ${job.err}',

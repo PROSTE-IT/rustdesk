@@ -66,6 +66,36 @@ class LegacyHostMigrationCoordinator extends ChangeNotifier {
 
 final legacyHostMigrationCoordinator = LegacyHostMigrationCoordinator();
 
+List<String> legacyHostMigrationStageDirectories({
+  required String remoteHome,
+  required String remoteCurrentDirectory,
+}) {
+  String? usableDirectory(String value) {
+    var candidate = value.trim().replaceAll('/', r'\');
+    if (!RegExp(r'^[a-zA-Z]:\\').hasMatch(candidate)) return null;
+    while (candidate.length > 3 && candidate.endsWith(r'\')) {
+      candidate = candidate.substring(0, candidate.length - 1);
+    }
+    // Do not stage in a drive root. Apart from requiring elevated write access,
+    // it would leave update payloads in a needlessly broad location.
+    if (candidate.length <= 3) return null;
+    return candidate;
+  }
+
+  final drive =
+      RegExp(r'^([a-zA-Z]:)').firstMatch(remoteHome.trim())?.group(1) ??
+          RegExp(r'^([a-zA-Z]:)')
+              .firstMatch(remoteCurrentDirectory.trim())
+              ?.group(1) ??
+          'C:';
+  final directories = <String>{'$drive\\Users\\Public\\Documents'};
+  final home = usableDirectory(remoteHome);
+  if (home != null) directories.add(home);
+  final current = usableDirectory(remoteCurrentDirectory);
+  if (current != null) directories.add(current);
+  return directories.toList(growable: false);
+}
+
 String buildLegacyHostMigrationCommand({
   required String remoteScriptPath,
 }) {

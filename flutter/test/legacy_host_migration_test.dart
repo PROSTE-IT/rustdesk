@@ -80,4 +80,46 @@ void main() {
     expect(command, isNot(contains('-EncodedCommand')));
     expect(command.length, lessThan(256));
   });
+
+  test('tries public documents before the known remote user home', () {
+    expect(
+      legacyHostMigrationStageDirectories(
+        remoteHome: r'C:\Users\Jan Kowalski\',
+        remoteCurrentDirectory: r'D:\Serwis',
+      ),
+      [
+        r'C:\Users\Public\Documents',
+        r'C:\Users\Jan Kowalski',
+        r'D:\Serwis',
+      ],
+    );
+  });
+
+  test('uses a known current directory when the remote home is unavailable',
+      () {
+    expect(
+      legacyHostMigrationStageDirectories(
+        remoteHome: '',
+        remoteCurrentDirectory: r'D:\Serwis\',
+      ),
+      [r'D:\Users\Public\Documents', r'D:\Serwis'],
+    );
+  });
+
+  test('never uses a drive root as a staging directory', () {
+    expect(
+      legacyHostMigrationStageDirectories(
+        remoteHome: r'D:\',
+        remoteCurrentDirectory: '',
+      ),
+      [r'D:\Users\Public\Documents'],
+    );
+    expect(
+      legacyHostMigrationStageDirectories(
+        remoteHome: '',
+        remoteCurrentDirectory: '',
+      ),
+      [r'C:\Users\Public\Documents'],
+    );
+  });
 }
