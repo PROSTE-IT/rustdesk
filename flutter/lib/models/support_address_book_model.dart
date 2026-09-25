@@ -157,46 +157,6 @@ class SupportDevice {
   }
 }
 
-enum SupportDeviceFilter {
-  attention,
-  online,
-  offline,
-  servers,
-  computers,
-  shared,
-}
-
-bool matchesSupportDeviceFilters(
-  SupportDevice device,
-  Set<SupportDeviceFilter> filters,
-) {
-  if (filters.isEmpty) return true;
-
-  if (filters.contains(SupportDeviceFilter.attention) &&
-      !(device.hostHealth?.hasAlert ?? false)) {
-    return false;
-  }
-
-  final online = filters.contains(SupportDeviceFilter.online);
-  final offline = filters.contains(SupportDeviceFilter.offline);
-  if ((online || offline) &&
-      !((online && device.online) || (offline && !device.online))) {
-    return false;
-  }
-
-  final servers = filters.contains(SupportDeviceFilter.servers);
-  final computers = filters.contains(SupportDeviceFilter.computers);
-  final shared = filters.contains(SupportDeviceFilter.shared);
-  if ((servers || computers || shared) &&
-      !((servers && device.deviceType == 'server') ||
-          (computers && device.deviceType != 'server') ||
-          (shared && device.isShared))) {
-    return false;
-  }
-
-  return true;
-}
-
 double? _supportDouble(dynamic value) =>
     value == null ? null : double.tryParse(value.toString());
 

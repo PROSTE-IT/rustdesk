@@ -6,6 +6,7 @@ import 'package:flutter_hbb/common/widgets/peer_card.dart';
 import 'package:flutter_hbb/models/peer_tab_model.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/support_address_book_model.dart';
+import 'package:flutter_hbb/models/support_device_filter.dart';
 
 enum _SupportDeviceView { list, tiles }
 
@@ -1089,7 +1090,13 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
   }
 
   bool _matchesFilter(SupportDevice device) {
-    return matchesSupportDeviceFilters(device, _filters);
+    return matchesSupportDeviceFilters(
+      filters: _filters,
+      online: device.online,
+      isServer: device.deviceType == 'server',
+      isShared: device.isShared,
+      needsAttention: _needsAttention(device),
+    );
   }
 
   int _compareDevices(SupportDevice left, SupportDevice right) {

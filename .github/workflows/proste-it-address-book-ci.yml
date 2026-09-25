@@ -33,10 +33,12 @@ on:
       - flutter/lib/models/legacy_host_migration.dart
       - flutter/lib/models/peer_tab_model.dart
       - flutter/lib/models/support_address_book_model.dart
+      - flutter/lib/models/support_device_filter.dart
       - flutter/lib/models/support_session_activity_tracker.dart
       - flutter/test/support_session_activity_tracker_test.dart
       - flutter/test/legacy_host_migration_test.dart
       - flutter/test/support_host_data_test.dart
+      - flutter/test/support_device_filter_test.dart
       - flutter/lib/utils/multi_window_manager.dart
       - .github/workflows/proste-it-address-book-ci.yml
       - flutter/lib/models/support_secure_storage*.dart
@@ -77,6 +79,7 @@ jobs:
             lib/desktop/widgets/remote_toolbar.dart
             lib/models/legacy_host_migration.dart
             lib/models/support_address_book_model.dart
+            lib/models/support_device_filter.dart
             lib/models/support_session_activity_tracker.dart
             lib/models/model.dart
             lib/models/support_secure_storage.dart
@@ -86,6 +89,7 @@ jobs:
             test/support_session_activity_tracker_test.dart
             test/legacy_host_migration_test.dart
             test/support_host_data_test.dart
+            test/support_device_filter_test.dart
           )
           dart format "${files[@]}"
           git diff --exit-code -- "${files[@]}"
@@ -103,6 +107,7 @@ jobs:
           for source in \
             lib/models/legacy_host_migration.dart \
             lib/models/support_address_book_model.dart \
+            lib/models/support_device_filter.dart \
             lib/models/support_session_activity_tracker.dart \
             lib/models/support_secure_storage.dart \
             lib/models/support_secure_storage_io.dart \
@@ -142,7 +147,7 @@ jobs:
           flutter test
           test/support_session_activity_tracker_test.dart
           test/legacy_host_migration_test.dart
-          test/support_host_data_test.dart
+          test/support_device_filter_test.dart
 
       - name: Validate Python build script
         run: python -m py_compile build.py res/msi/preprocess.py
