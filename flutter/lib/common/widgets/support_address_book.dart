@@ -392,9 +392,8 @@ class _SupportAddressBookState extends State<SupportAddressBook> {
         message: _filters.isEmpty ? 'Wszystkie urządzenia' : selectedLabels,
         child: OutlinedButton.icon(
           key: const ValueKey('support-device-filter-menu'),
-          onPressed: () => controller.isOpen
-              ? controller.close()
-              : controller.open(),
+          onPressed: () =>
+              controller.isOpen ? controller.close() : controller.open(),
           icon: const Icon(Icons.filter_list),
           label: Text(buttonLabel),
         ),
