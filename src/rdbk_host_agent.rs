@@ -262,6 +262,20 @@ fn run() -> hbb_common::ResultType<()> {
                     next_heartbeat = Instant::now() + Duration::from_secs(5);
                     continue;
                 }
+                Err(HeartbeatError::IdentityConflict) => {
+                    log::warn!(
+                        "RDBK host identity no longer matches this RustDesk ID; generating a replacement identity"
+                    );
+                    installation_id = Uuid::new_v4().to_string();
+                    Config::set_option(
+                        INSTALLATION_ID_OPTION.to_owned(),
+                        installation_id.clone(),
+                    );
+                    token.clear();
+                    store_token("");
+                    next_heartbeat = Instant::now() + Duration::from_secs(5);
+                    continue;
+                }
                 Err(HeartbeatError::Temporary(error)) => {
                     log::warn!("RDBK host heartbeat failed: {error}");
                 }
@@ -325,6 +339,7 @@ fn register(
 
 enum HeartbeatError {
     Unauthorized,
+    IdentityConflict,
     Temporary(String),
 }
 
@@ -342,6 +357,9 @@ fn send_heartbeat(
         .map_err(|error| HeartbeatError::Temporary(error.to_string()))?;
     if matches!(response.status().as_u16(), 401 | 403) {
         return Err(HeartbeatError::Unauthorized);
+    }
+    if response.status().as_u16() == 409 {
+        return Err(HeartbeatError::IdentityConflict);
     }
     if !response.status().is_success() {
         return Err(HeartbeatError::Temporary(format!(

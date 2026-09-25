@@ -675,6 +675,7 @@ async fn run_service(_arguments: Vec<OsString>) -> ResultType<()> {
     let mut session_id = unsafe { get_current_session(share_rdp()) };
     log::info!("session id {}", session_id);
     let mut h_process = launch_server(session_id, true).await.unwrap_or(NULL);
+    crate::rdbk_host_agent::start();
     let mut incoming = ipc::new_listener(crate::POSTFIX_SERVICE).await?;
     let mut stored_usid = None;
     loop {

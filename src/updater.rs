@@ -54,7 +54,11 @@ pub fn stop_auto_update() {
 
 #[cfg(target_os = "windows")]
 pub fn install_support_update(download_url: String) -> ResultType<()> {
-    install_managed_windows_update(download_url, ManagedWindowsArtifact::Msi)
+    install_managed_windows_update(
+        download_url,
+        ManagedWindowsArtifact::Msi,
+        ManagedWindowsActivitySource::LocalServer,
+    )
 }
 
 #[cfg(target_os = "windows")]
@@ -66,6 +70,7 @@ pub fn install_managed_host_update(download_url: String, use_msi: bool) -> Resul
         } else {
             ManagedWindowsArtifact::Exe
         },
+        ManagedWindowsActivitySource::ServerIpc,
     )
 }
 
@@ -77,19 +82,27 @@ enum ManagedWindowsArtifact {
 }
 
 #[cfg(target_os = "windows")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ManagedWindowsActivitySource {
+    LocalServer,
+    ServerIpc,
+}
+
+#[cfg(target_os = "windows")]
 fn install_managed_windows_update(
     download_url: String,
     artifact: ManagedWindowsArtifact,
+    activity_source: ManagedWindowsActivitySource,
 ) -> ResultType<()> {
     if !crate::platform::is_installed() || !crate::platform::windows::is_root() {
         bail!("Aktualizacja wymaga uruchomionej usługi systemowej.");
     }
-    if !has_no_active_conns() {
+    if !has_no_managed_windows_active_conns(activity_source) {
         bail!("Zakończ aktywne sesje przed aktualizacją.");
     }
 
     let (installer, update_channel) = download_managed_windows_artifact(download_url, artifact)?;
-    if !has_no_active_conns() {
+    if !has_no_managed_windows_active_conns(activity_source) {
         std::fs::remove_file(&installer).ok();
         bail!("Zakończ aktywne sesje przed aktualizacją.");
     }
@@ -114,6 +127,21 @@ fn install_managed_windows_update(
         std::fs::remove_file(installer).ok();
     });
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn has_no_managed_windows_active_conns(
+    activity_source: ManagedWindowsActivitySource,
+) -> bool {
+    if !has_no_active_conns() {
+        return false;
+    }
+    match activity_source {
+        ManagedWindowsActivitySource::LocalServer => true,
+        ManagedWindowsActivitySource::ServerIpc => {
+            matches!(crate::ipc::get_controlled_session_count(1_000), Ok(0))
+        }
+    }
 }
 
 #[cfg(all(target_os = "windows", feature = "flutter"))]

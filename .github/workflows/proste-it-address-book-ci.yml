@@ -80,6 +80,7 @@ jobs:
             lib/models/legacy_host_migration.dart
             lib/models/support_address_book_model.dart
             lib/models/support_device_filter.dart
+            lib/models/support_server_resolution.dart
             lib/models/support_session_activity_tracker.dart
             lib/models/model.dart
             lib/models/support_secure_storage.dart
@@ -90,6 +91,7 @@ jobs:
             test/legacy_host_migration_test.dart
             test/support_host_data_test.dart
             test/support_device_filter_test.dart
+            test/support_server_resolution_test.dart
           )
           dart format "${files[@]}"
           git diff --exit-code -- "${files[@]}"
@@ -99,7 +101,9 @@ jobs:
           rustfmt --edition 2021 --check
           src/updater.rs
           src/rdbk_host_agent.rs
+          src/ipc.rs
           src/platform/windows.rs
+          src/rendezvous_mediator.rs
 
       - name: Analyze address book models
         working-directory: flutter

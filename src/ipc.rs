@@ -1920,6 +1920,19 @@ pub async fn notify_server_to_check_hwcodec() -> ResultType<()> {
 }
 
 #[cfg(target_os = "windows")]
+#[tokio::main(flavor = "current_thread")]
+pub async fn get_controlled_session_count(ms_timeout: u64) -> ResultType<usize> {
+    let mut connection = connect(ms_timeout, "").await?;
+    connection.send(&Data::ControlledSessionCount(0)).await?;
+    if let Some(Data::ControlledSessionCount(count)) =
+        connection.next_timeout(ms_timeout).await?
+    {
+        return Ok(count);
+    }
+    bail!("Failed to get controlled session count");
+}
+
+#[cfg(target_os = "windows")]
 pub async fn get_port_forward_session_count(ms_timeout: u64) -> ResultType<usize> {
     let mut c = connect(ms_timeout, "").await?;
     c.send(&Data::PortForwardSessionCount(None)).await?;
