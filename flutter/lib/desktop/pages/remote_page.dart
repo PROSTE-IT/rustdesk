@@ -20,6 +20,7 @@ import '../../models/input_model.dart';
 import '../../models/legacy_host_migration.dart';
 import '../../models/platform_model.dart';
 import '../../models/support_address_book_model.dart';
+import '../../models/support_server_resolution.dart';
 import '../../models/support_session_activity_tracker.dart';
 import '../../common/shared_state.dart';
 import '../../utils/image.dart';
@@ -105,6 +106,8 @@ class _RemotePageState extends State<RemotePage>
   bool _supportServerResolutionApplied = false;
   bool? _supportPeerIsServer;
   int _supportServerProfileAttempts = 0;
+  final SupportServerResolutionRetryPolicy _supportServerResolutionRetryPolicy =
+      SupportServerResolutionRetryPolicy();
   final SupportSessionActivityTracker _supportActivityTracker =
       SupportSessionActivityTracker();
   String keyboardMode = "legacy";
@@ -320,7 +323,7 @@ class _RemotePageState extends State<RemotePage>
       if (_supportDisposing ||
           _supportServerResolutionApplied ||
           _supportPeerIsServer == false ||
-          ++_supportServerProfileAttempts >= 15) {
+          ++_supportServerProfileAttempts >= 60) {
         timer.cancel();
         _supportServerProfileRetryTimer = null;
         return;
@@ -363,19 +366,30 @@ class _RemotePageState extends State<RemotePage>
       if (peer.currentDisplay == kAllDisplayValue || peer.resolutions.isEmpty) {
         return;
       }
-      final resolutions = peer.resolutions
-          .where((item) => item.width > 0 && item.height > 0)
-          .toList();
-      if (resolutions.isEmpty) return;
-      resolutions.sort((a, b) {
-        final area = (b.width * b.height).compareTo(a.width * a.height);
-        return area != 0 ? area : b.width.compareTo(a.width);
-      });
-      final highest = resolutions.first;
+      final highest = highestSupportDisplayResolution(
+        peer.resolutions.map(
+          (item) => SupportDisplayResolution(item.width, item.height),
+        ),
+      );
+      if (highest == null) return;
       final display = peer.tryGetDisplay();
-      if (display == null ||
-          display.width != highest.width ||
-          display.height != highest.height) {
+      final current = display == null
+          ? null
+          : SupportDisplayResolution(display.width, display.height);
+      if (_supportServerResolutionRetryPolicy.isApplied(
+        current: current,
+        target: highest,
+      )) {
+        _supportServerResolutionApplied = true;
+        _supportServerProfileRetryTimer?.cancel();
+        _supportServerProfileRetryTimer = null;
+        return;
+      }
+      if (_supportServerResolutionRetryPolicy.shouldRequest(
+        current: current,
+        target: highest,
+        now: DateTime.now(),
+      )) {
         await bind.sessionChangeResolution(
           sessionId: sessionId,
           display: peer.currentDisplay,
@@ -383,9 +397,6 @@ class _RemotePageState extends State<RemotePage>
           height: highest.height,
         );
       }
-      _supportServerResolutionApplied = true;
-      _supportServerProfileRetryTimer?.cancel();
-      _supportServerProfileRetryTimer = null;
     } catch (error, stackTrace) {
       debugPrint('Failed to apply the RDBK server display profile: $error');
       debugPrintStack(stackTrace: stackTrace);

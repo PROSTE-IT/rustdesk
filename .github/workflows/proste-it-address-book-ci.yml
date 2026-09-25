@@ -108,6 +108,7 @@ jobs:
             lib/models/legacy_host_migration.dart \
             lib/models/support_address_book_model.dart \
             lib/models/support_device_filter.dart \
+            lib/models/support_server_resolution.dart \
             lib/models/support_session_activity_tracker.dart \
             lib/models/support_secure_storage.dart \
             lib/models/support_secure_storage_io.dart \
@@ -148,6 +149,7 @@ jobs:
           test/support_session_activity_tracker_test.dart
           test/legacy_host_migration_test.dart
           test/support_device_filter_test.dart
+          test/support_server_resolution_test.dart
 
       - name: Validate Python build script
         run: python -m py_compile build.py res/msi/preprocess.py
