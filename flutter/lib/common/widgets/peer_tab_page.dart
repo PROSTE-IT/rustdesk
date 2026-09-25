@@ -139,7 +139,9 @@ class _PeerTabPageState extends State<PeerTabPage>
   Widget _createSwitchBar(BuildContext context) {
     final model = Provider.of<PeerTabModel>(context);
     var counter = -1;
-    return ReorderableListView(
+    return Center(
+      child: ReorderableListView(
+        shrinkWrap: true,
         buildDefaultDragHandles: false,
         onReorder: model.reorder,
         scrollDirection: Axis.horizontal,
@@ -184,7 +186,9 @@ class _PeerTabPageState extends State<PeerTabPage>
                       onHover: (value) => hover.value = value,
                     ),
                   )));
-        }).toList());
+        }).toList(),
+      ),
+    );
   }
 
   Widget _createPeersView() {
