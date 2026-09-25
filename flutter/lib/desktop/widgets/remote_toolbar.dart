@@ -1945,17 +1945,12 @@ class _LegacyHostMigrationButtonState
           'RDBK zwrócił nieprawidłowy identyfikator migracji.');
     }
     final stem = 'PROSTEIT-HostMigration-$safeAttempt';
-    final remoteHome = widget.ffi.fileModel.remoteController.homePath;
-    final remoteDirectories = legacyHostMigrationStageDirectories(
-      remoteHome: remoteHome,
-      remoteCurrentDirectory:
-          widget.ffi.fileModel.remoteController.directory.value.path,
-    );
 
     final localDirectory =
         await Directory.systemTemp.createTemp('prosteit-host-migration-');
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 20);
+    FFI? transferFfi;
     try {
       final localExe = File('${localDirectory.path}\\$stem.exe');
       final localMsi = File('${localDirectory.path}\\$stem.msi');
@@ -1984,6 +1979,13 @@ class _LegacyHostMigrationButtonState
         ),
       ]);
 
+      transferFfi = await _openMigrationFileTransferSession();
+      final remoteController = transferFfi.fileModel.remoteController;
+      final remoteDirectories = legacyHostMigrationStageDirectories(
+        remoteHome: remoteController.homePath,
+        remoteCurrentDirectory: remoteController.directory.value.path,
+      );
+
       // Probe the shared Public Documents path with the small launcher first.
       // It remains readable after logging in as another Windows user. If that
       // path is unavailable, fall back to a directory already reported by the
@@ -1993,6 +1995,7 @@ class _LegacyHostMigrationButtonState
       for (final candidate in remoteDirectories) {
         try {
           await _transferMigrationFile(
+            transferFfi,
             localScript,
             '$candidate\\${localScript.uri.pathSegments.last}',
             timeout: const Duration(seconds: 30),
@@ -2012,6 +2015,7 @@ class _LegacyHostMigrationButtonState
       // The command is sent only after the peer acknowledges both installers.
       for (final file in [localExe, localMsi]) {
         await _transferMigrationFile(
+          transferFfi,
           file,
           '$remoteDirectory\\${file.uri.pathSegments.last}',
         );
@@ -2019,10 +2023,66 @@ class _LegacyHostMigrationButtonState
       return '$remoteDirectory\\$stem.ps1';
     } finally {
       client.close(force: true);
+      if (transferFfi != null) {
+        await _closeMigrationFileTransferSession(transferFfi);
+      }
       try {
         await localDirectory.delete(recursive: true);
       } catch (_) {}
     }
+  }
+
+  Future<FFI> _openMigrationFileTransferSession() async {
+    final connToken = bind.sessionGetConnToken(sessionId: widget.ffi.sessionId);
+    if (connToken == null || connToken.isEmpty) {
+      throw const SupportAddressBookException(
+        'Nie można uwierzytelnić pomocniczego kanału transferu plików. '
+        'Połącz się ponownie z hostem i spróbuj jeszcze raz.',
+      );
+    }
+
+    final transferFfi = FFI(null);
+    transferFfi.start(
+      widget.id,
+      isFileTransfer: true,
+      connToken: connToken,
+    );
+    final deadline = DateTime.now().add(const Duration(seconds: 30));
+    try {
+      while (DateTime.now().isBefore(deadline)) {
+        if (transferFfi.closed) {
+          throw const SupportAddressBookException(
+            'Host odrzucił pomocniczy kanał transferu plików.',
+          );
+        }
+        final remoteController = transferFfi.fileModel.remoteController;
+        final hasRemotePath = remoteController.homePath.isNotEmpty ||
+            remoteController.directory.value.path.isNotEmpty;
+        final peerAuthenticated =
+            transferFfi.ffiModel.pi.platform.trim().isNotEmpty;
+        if (transferFfi.ffiModel.connectionReady &&
+            peerAuthenticated &&
+            hasRemotePath) {
+          return transferFfi;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+      throw const SupportAddressBookException(
+        'Nie udało się zestawić pomocniczego kanału transferu plików.',
+      );
+    } catch (_) {
+      await _closeMigrationFileTransferSession(transferFfi);
+      rethrow;
+    }
+  }
+
+  Future<void> _closeMigrationFileTransferSession(FFI transferFfi) async {
+    try {
+      await transferFfi.fileModel.close().timeout(const Duration(seconds: 3));
+    } catch (_) {}
+    try {
+      await transferFfi.close().timeout(const Duration(seconds: 5));
+    } catch (_) {}
   }
 
   Future<void> _downloadMigrationFile(
@@ -2069,11 +2129,12 @@ class _LegacyHostMigrationButtonState
   }
 
   Future<void> _transferMigrationFile(
+    FFI transferFfi,
     File file,
     String remotePath, {
     Duration timeout = const Duration(minutes: 10),
   }) async {
-    if (widget.ffi.closed) {
+    if (widget.ffi.closed || transferFfi.closed) {
       throw const SupportAddressBookException(
           'Sesja została zamknięta przed transferem aktualizacji.');
     }
@@ -2084,7 +2145,7 @@ class _LegacyHostMigrationButtonState
       ..name = file.uri.pathSegments.last
       ..path = file.path
       ..size = stat.size;
-    final controller = widget.ffi.fileModel.jobController;
+    final controller = transferFfi.fileModel.jobController;
     final jobId = controller.addTransferJob(entry, false);
     // A retry can encounter a file left by an interrupted Support process.
     // Register the job so RustDesk handles the overwrite decision instead of
@@ -2092,7 +2153,7 @@ class _LegacyHostMigrationButtonState
     controller.registerTransferConflictBatch([jobId]);
     try {
       await bind.sessionSendFiles(
-        sessionId: widget.ffi.sessionId,
+        sessionId: transferFfi.sessionId,
         actId: jobId,
         path: file.path,
         to: remotePath,
@@ -2109,7 +2170,7 @@ class _LegacyHostMigrationButtonState
     }
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
-      if (widget.ffi.closed) {
+      if (widget.ffi.closed || transferFfi.closed) {
         throw const SupportAddressBookException(
             'Sesja została zamknięta podczas transferu aktualizacji.');
       }
