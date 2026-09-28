@@ -1017,7 +1017,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     bool automatic = false,
   }) async {
     if (_supportUpdateStarting || !mounted) return;
-    final force = !automatic && supportClientUpdateChannel == 'windows_helpdesk';
+    final force =
+        !automatic && supportClientUpdateChannel == 'windows_helpdesk';
     if (force) {
       final confirmed = await showDialog<bool>(
             context: context,
