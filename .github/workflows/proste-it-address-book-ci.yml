@@ -41,6 +41,7 @@ on:
       - flutter/test/support_host_data_test.dart
       - flutter/test/support_device_filter_test.dart
       - flutter/test/support_server_resolution_test.dart
+      - flutter/test/support_post_session_prompt_store_test.dart
       - flutter/lib/utils/multi_window_manager.dart
       - .github/workflows/proste-it-address-book-ci.yml
       - flutter/lib/models/support_secure_storage*.dart
@@ -94,6 +95,7 @@ jobs:
             test/support_host_data_test.dart
             test/support_device_filter_test.dart
             test/support_server_resolution_test.dart
+            test/support_post_session_prompt_store_test.dart
           )
           dart format "${files[@]}"
           git diff --exit-code -- "${files[@]}"
@@ -156,6 +158,7 @@ jobs:
           test/legacy_host_migration_test.dart
           test/support_device_filter_test.dart
           test/support_server_resolution_test.dart
+          test/support_post_session_prompt_store_test.dart
 
       - name: Validate Python build script
         run: python -m py_compile build.py res/msi/preprocess.py

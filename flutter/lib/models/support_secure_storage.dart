@@ -31,6 +31,16 @@ Future<void> writeSupportPostSessionPrompts(
 ) =>
     implementation.writeSupportPostSessionPrompts(prompts);
 
+Future<List<Map<String, dynamic>>> appendSupportPostSessionPrompt(
+  Map<String, dynamic> prompt,
+) =>
+    implementation.appendSupportPostSessionPrompt(prompt);
+
+Future<List<Map<String, dynamic>>> removeSupportPostSessionPrompt(
+  String promptId,
+) =>
+    implementation.removeSupportPostSessionPrompt(promptId);
+
 Future<Map<String, String>> readSupportSessionSyncFailures() =>
     implementation.readSupportSessionSyncFailures();
 

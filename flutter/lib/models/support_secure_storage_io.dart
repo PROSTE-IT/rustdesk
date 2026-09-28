@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
@@ -58,6 +59,7 @@ const _tokenFileName = 'rdbk-device-token.dpapi';
 const _installationFileName = 'rdbk-installation-id';
 const _queueFileName = 'rdbk-event-queue.json';
 const _postSessionPromptsFileName = 'rdbk-post-session-prompts.json';
+const _postSessionPromptsLockFileName = 'rdbk-post-session-prompts.lock';
 const _sessionSyncFailuresFileName = 'rdbk-session-sync-failures.json';
 
 Future<Directory> _supportDirectory() async {
@@ -194,27 +196,111 @@ Future<void> writeSupportEventQueue(List<Map<String, dynamic>> events) async {
   await file.writeAsString(jsonEncode(events), flush: true);
 }
 
-Future<List<Map<String, dynamic>>> readSupportPostSessionPrompts() async {
-  final file = await _file(_postSessionPromptsFileName);
-  if (!await file.exists()) return [];
-  try {
-    final decoded = jsonDecode(await file.readAsString());
-    if (decoded is! List) return [];
-    return decoded
-        .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item))
-        .toList();
-  } catch (_) {
-    return [];
+class SupportPostSessionPromptStore {
+  static final Map<String, Future<void>> _inProcessLocks = {};
+
+  final File file;
+  final File lockFile;
+
+  const SupportPostSessionPromptStore(this.file, this.lockFile);
+
+  Future<T> _withLock<T>(Future<T> Function() action) async {
+    // Unix file locks are process-wide; this also serializes local callers.
+    final key = lockFile.absolute.path;
+    final previous = _inProcessLocks[key] ?? Future<void>.value();
+    final completion = Completer<void>();
+    _inProcessLocks[key] = completion.future;
+    await previous;
+    try {
+      // Each Flutter window has its own model; serialize read-modify-write.
+      final handle = await lockFile.open(mode: FileMode.append);
+      try {
+        await handle.lock(FileLock.blockingExclusive);
+        try {
+          return await action();
+        } finally {
+          await handle.unlock();
+        }
+      } finally {
+        await handle.close();
+      }
+    } finally {
+      if (identical(_inProcessLocks[key], completion.future)) {
+        _inProcessLocks.remove(key);
+      }
+      completion.complete();
+    }
   }
+
+  Future<List<Map<String, dynamic>>> _readUnlocked() async {
+    if (!await file.exists()) return [];
+    try {
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded is! List) return [];
+      return decoded
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> _writeUnlocked(List<Map<String, dynamic>> prompts) async {
+    await file.writeAsString(jsonEncode(prompts), flush: true);
+  }
+
+  Future<List<Map<String, dynamic>>> read() => _withLock(_readUnlocked);
+
+  Future<void> write(List<Map<String, dynamic>> prompts) =>
+      _withLock(() => _writeUnlocked(prompts));
+
+  Future<List<Map<String, dynamic>>> append(Map<String, dynamic> prompt) =>
+      _withLock(() async {
+        final prompts = await _readUnlocked();
+        if (!prompts.any((item) => item['id'] == prompt['id'])) {
+          prompts.add(prompt);
+          await _writeUnlocked(prompts);
+        }
+        return prompts;
+      });
+
+  Future<List<Map<String, dynamic>>> remove(String promptId) =>
+      _withLock(() async {
+        final prompts = await _readUnlocked();
+        final previousCount = prompts.length;
+        prompts.removeWhere((item) => item['id'] == promptId);
+        if (prompts.length != previousCount) {
+          await _writeUnlocked(prompts);
+        }
+        return prompts;
+      });
 }
+
+Future<SupportPostSessionPromptStore> _postSessionPromptStore() async =>
+    SupportPostSessionPromptStore(
+      await _file(_postSessionPromptsFileName),
+      await _file(_postSessionPromptsLockFileName),
+    );
+
+Future<List<Map<String, dynamic>>> readSupportPostSessionPrompts() async =>
+    (await _postSessionPromptStore()).read();
 
 Future<void> writeSupportPostSessionPrompts(
   List<Map<String, dynamic>> prompts,
 ) async {
-  final file = await _file(_postSessionPromptsFileName);
-  await file.writeAsString(jsonEncode(prompts), flush: true);
+  await (await _postSessionPromptStore()).write(prompts);
 }
+
+Future<List<Map<String, dynamic>>> appendSupportPostSessionPrompt(
+  Map<String, dynamic> prompt,
+) async =>
+    (await _postSessionPromptStore()).append(prompt);
+
+Future<List<Map<String, dynamic>>> removeSupportPostSessionPrompt(
+  String promptId,
+) async =>
+    (await _postSessionPromptStore()).remove(promptId);
 
 Future<Map<String, String>> readSupportSessionSyncFailures() async {
   final file = await _file(_sessionSyncFailuresFileName);

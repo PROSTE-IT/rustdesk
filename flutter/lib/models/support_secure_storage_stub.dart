@@ -20,6 +20,16 @@ Future<List<Map<String, dynamic>>> readSupportPostSessionPrompts() async =>
 Future<void> writeSupportPostSessionPrompts(
     List<Map<String, dynamic>> prompts) async {}
 
+Future<List<Map<String, dynamic>>> appendSupportPostSessionPrompt(
+  Map<String, dynamic> prompt,
+) async =>
+    const [];
+
+Future<List<Map<String, dynamic>>> removeSupportPostSessionPrompt(
+  String promptId,
+) async =>
+    const [];
+
 Future<Map<String, String>> readSupportSessionSyncFailures() async => const {};
 
 Future<void> writeSupportSessionSyncFailures(

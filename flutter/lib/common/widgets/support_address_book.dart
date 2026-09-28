@@ -1970,6 +1970,12 @@ Future<bool> showSupportAddressBookPrompt(
   try {
     final existing = await supportAddressBookModel.lookup(prompt.rustdeskId);
     if (!context.mounted) return false;
+    await supportAddressBookModel.reloadPostSessionState();
+    if (!context.mounted) return false;
+    if (!supportAddressBookModel.postSessionPrompts
+        .any((item) => item.id == prompt.id)) {
+      return true;
+    }
     if (_supportSessionSummaryPromptsEnabled &&
         prompt.supportSessionId != null) {
       final result = await _showSupportSessionResultDialog(context, prompt);
@@ -2048,26 +2054,29 @@ Future<void> showPendingSupportAddressBookPrompt() async {
   if (_showingPostSessionPrompt || supportAddressBookApiUrl.trim().isEmpty) {
     return;
   }
-  await supportAddressBookModel.ensureInitialized();
-  await supportAddressBookModel.reloadPostSessionState();
-  if (!supportAddressBookModel.isAuthenticated ||
-      supportAddressBookModel.postSessionPrompts.isEmpty) {
-    return;
-  }
-  final navigator = globalKey.currentState;
-  final context = navigator?.context;
-  if (context == null || !context.mounted) return;
-  final prompt = supportAddressBookModel.postSessionPrompts.first;
   _showingPostSessionPrompt = true;
+  var attempted = false;
   var completed = false;
   try {
+    await supportAddressBookModel.ensureInitialized();
+    await supportAddressBookModel.reloadPostSessionState();
+    if (!supportAddressBookModel.isAuthenticated ||
+        supportAddressBookModel.postSessionPrompts.isEmpty) {
+      return;
+    }
+    final navigator = globalKey.currentState;
+    final context = navigator?.context;
+    if (context == null || !context.mounted) return;
+    final prompt = supportAddressBookModel.postSessionPrompts.first;
+    attempted = true;
     completed = await showSupportAddressBookPrompt(context, prompt);
   } finally {
     _showingPostSessionPrompt = false;
-    if (!completed && supportAddressBookModel.isAuthenticated) {
+    if (attempted && !completed && supportAddressBookModel.isAuthenticated) {
       Timer(const Duration(seconds: 15),
           () => unawaited(showPendingSupportAddressBookPrompt()));
-    } else if (supportAddressBookModel.postSessionPrompts.isNotEmpty) {
+    } else if (attempted &&
+        supportAddressBookModel.postSessionPrompts.isNotEmpty) {
       unawaited(showPendingSupportAddressBookPrompt());
     }
   }

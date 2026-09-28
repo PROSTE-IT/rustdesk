@@ -1585,9 +1585,13 @@ class SupportAddressBookModel with ChangeNotifier {
     SupportPostSessionPrompt prompt,
   ) async {
     await ensureInitialized();
-    if (_postSessionPrompts.any((item) => item.id == prompt.id)) return;
-    _postSessionPrompts.add(prompt);
-    await _persistPostSessionPrompts();
+    final stored = await appendSupportPostSessionPrompt(prompt.toJson());
+    _postSessionPrompts
+      ..clear()
+      ..addAll(stored
+          .map(SupportPostSessionPrompt.fromJson)
+          .where((item) =>
+              item.id.isNotEmpty && item.rustdeskId.isNotEmpty));
     notifyListeners();
   }
 
@@ -1613,10 +1617,14 @@ class SupportAddressBookModel with ChangeNotifier {
   }
 
   Future<void> completePostSessionPrompt(String promptId) async {
-    final hasPrompt = _postSessionPrompts.any((item) => item.id == promptId);
-    if (!hasPrompt) return;
-    _postSessionPrompts.removeWhere((item) => item.id == promptId);
-    await _persistPostSessionPrompts();
+    await ensureInitialized();
+    final stored = await removeSupportPostSessionPrompt(promptId);
+    _postSessionPrompts
+      ..clear()
+      ..addAll(stored
+          .map(SupportPostSessionPrompt.fromJson)
+          .where((item) =>
+              item.id.isNotEmpty && item.rustdeskId.isNotEmpty));
     notifyListeners();
   }
 
