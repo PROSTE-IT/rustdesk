@@ -1590,8 +1590,7 @@ class SupportAddressBookModel with ChangeNotifier {
       ..clear()
       ..addAll(stored
           .map(SupportPostSessionPrompt.fromJson)
-          .where((item) =>
-              item.id.isNotEmpty && item.rustdeskId.isNotEmpty));
+          .where((item) => item.id.isNotEmpty && item.rustdeskId.isNotEmpty));
     notifyListeners();
   }
 
@@ -1623,8 +1622,7 @@ class SupportAddressBookModel with ChangeNotifier {
       ..clear()
       ..addAll(stored
           .map(SupportPostSessionPrompt.fromJson)
-          .where((item) =>
-              item.id.isNotEmpty && item.rustdeskId.isNotEmpty));
+          .where((item) => item.id.isNotEmpty && item.rustdeskId.isNotEmpty));
     notifyListeners();
   }
 

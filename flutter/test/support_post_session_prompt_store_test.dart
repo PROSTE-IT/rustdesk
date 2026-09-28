@@ -11,7 +11,8 @@ void main() {
   setUp(() async {
     directory = await Directory.systemTemp.createTemp('support-prompt-test-');
     final file = File('${directory.path}${Platform.pathSeparator}prompts.json');
-    final lockFile = File('${directory.path}${Platform.pathSeparator}prompts.lock');
+    final lockFile =
+        File('${directory.path}${Platform.pathSeparator}prompts.lock');
     sessionWindow = SupportPostSessionPromptStore(file, lockFile);
     mainWindow = SupportPostSessionPromptStore(file, lockFile);
   });
