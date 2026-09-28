@@ -78,7 +78,9 @@ pub fn install_support_update(request: String) -> ResultType<()> {
     };
     let download_url = download_url
         .filter(|url| !url.trim().is_empty())
-        .ok_or_else(|| hbb_common::anyhow::anyhow!("Brak instalatora zgodnego z instalacją hosta."))?;
+        .ok_or_else(|| {
+            hbb_common::anyhow::anyhow!("Brak instalatora zgodnego z instalacją hosta.")
+        })?;
     install_managed_windows_update(
         download_url,
         artifact,
