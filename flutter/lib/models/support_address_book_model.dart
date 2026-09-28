@@ -1095,8 +1095,14 @@ class SupportAddressBookModel with ChangeNotifier {
         );
         _clientUpdate = update.channel == supportClientUpdateChannel &&
                 update.buildUuid.isNotEmpty &&
-                update.filename.toLowerCase().endsWith('.msi') &&
-                update.downloadUrl.isNotEmpty
+                ((update.msiInstaller?.isUsable == true &&
+                        update.msiInstaller!.filename
+                            .toLowerCase()
+                            .endsWith('.msi')) ||
+                    (update.exeInstaller?.isUsable == true &&
+                        update.exeInstaller!.filename
+                            .toLowerCase()
+                            .endsWith('.exe')))
             ? update
             : null;
       } else {

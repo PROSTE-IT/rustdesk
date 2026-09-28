@@ -35,6 +35,7 @@ const DEFAULT_HEARTBEAT_SECONDS: u64 = 300;
 const SAMPLE_SECONDS: u64 = 60;
 const DISCOVERY_SECONDS: u64 = 30 * 60;
 const UPDATE_CHECK_SECONDS: u64 = 6 * 60 * 60;
+const UPDATE_RETRY_SECONDS: u64 = 15 * 60;
 
 static START: Once = Once::new();
 
@@ -246,13 +247,15 @@ fn run() -> hbb_common::ResultType<()> {
                     metrics.clear();
                     heartbeat_seconds = bounded_interval(response.next_heartbeat_seconds);
                     if !response.update_check_url.is_empty() && now >= next_update_check {
-                        if let Err(error) =
-                            check_managed_update(&client, &response.update_check_url)
-                        {
-                            log::warn!("RDBK managed update check failed: {error}");
-                        }
-                        next_update_check =
-                            Instant::now() + Duration::from_secs(UPDATE_CHECK_SECONDS);
+                        let retry_seconds =
+                            match check_managed_update(&client, &response.update_check_url) {
+                                Ok(()) => UPDATE_CHECK_SECONDS,
+                                Err(error) => {
+                                    log::warn!("RDBK managed update check failed: {error}");
+                                    UPDATE_RETRY_SECONDS
+                                }
+                            };
+                        next_update_check = Instant::now() + Duration::from_secs(retry_seconds);
                     }
                 }
                 Err(HeartbeatError::Unauthorized) => {

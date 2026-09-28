@@ -53,11 +53,37 @@ pub fn stop_auto_update() {
 }
 
 #[cfg(target_os = "windows")]
-pub fn install_support_update(download_url: String) -> ResultType<()> {
+pub fn install_support_update(request: String) -> ResultType<()> {
+    #[derive(serde::Deserialize)]
+    struct UpdateRequest {
+        exe_url: Option<String>,
+        msi_url: Option<String>,
+        #[serde(default)]
+        force: bool,
+    }
+
+    let request: UpdateRequest = serde_json::from_str(&request).unwrap_or_else(|_| UpdateRequest {
+        exe_url: None,
+        msi_url: Some(request),
+        force: false,
+    });
+    if request.force && option_env!("RDBK_UPDATE_CHANNEL") != Some("windows_helpdesk") {
+        bail!("Wymuszenie aktualizacji jest dostępne tylko dla Helpdeska.");
+    }
+    let use_msi = crate::platform::is_msi_installed()?;
+    let (download_url, artifact) = if use_msi {
+        (request.msi_url, ManagedWindowsArtifact::Msi)
+    } else {
+        (request.exe_url, ManagedWindowsArtifact::Exe)
+    };
+    let download_url = download_url
+        .filter(|url| !url.trim().is_empty())
+        .ok_or_else(|| hbb_common::anyhow::anyhow!("Brak instalatora zgodnego z instalacją hosta."))?;
     install_managed_windows_update(
         download_url,
-        ManagedWindowsArtifact::Msi,
+        artifact,
         ManagedWindowsActivitySource::LocalServer,
+        request.force,
     )
 }
 
@@ -71,6 +97,7 @@ pub fn install_managed_host_update(download_url: String, use_msi: bool) -> Resul
             ManagedWindowsArtifact::Exe
         },
         ManagedWindowsActivitySource::ServerIpc,
+        false,
     )
 }
 
@@ -93,16 +120,17 @@ fn install_managed_windows_update(
     download_url: String,
     artifact: ManagedWindowsArtifact,
     activity_source: ManagedWindowsActivitySource,
+    force: bool,
 ) -> ResultType<()> {
     if !crate::platform::is_installed() || !crate::platform::windows::is_root() {
         bail!("Aktualizacja wymaga uruchomionej usługi systemowej.");
     }
-    if !has_no_managed_windows_active_conns(activity_source) {
+    if !force && !has_no_managed_windows_active_conns(activity_source) {
         bail!("Zakończ aktywne sesje przed aktualizacją.");
     }
 
     let (installer, update_channel) = download_managed_windows_artifact(download_url, artifact)?;
-    if !has_no_managed_windows_active_conns(activity_source) {
+    if !force && !has_no_managed_windows_active_conns(activity_source) {
         std::fs::remove_file(&installer).ok();
         bail!("Zakończ aktywne sesje przed aktualizacją.");
     }

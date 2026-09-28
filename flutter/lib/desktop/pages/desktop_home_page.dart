@@ -1017,6 +1017,31 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     bool automatic = false,
   }) async {
     if (_supportUpdateStarting || !mounted) return;
+    final force = !automatic && supportClientUpdateChannel == 'windows_helpdesk';
+    if (force) {
+      final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('Zaktualizować Helpdesk teraz?'),
+              content: const Text(
+                'Aktualizacja może na chwilę przerwać bieżące połączenie. '
+                'Po instalacji usługa Helpdesk uruchomi się ponownie.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Anuluj'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Aktualizuj teraz'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (!confirmed || !mounted || _supportUpdateStarting) return;
+    }
     setState(() {
       _supportUpdateStarting = true;
       _supportUpdateAutomatic = automatic;
@@ -1024,7 +1049,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     try {
       await bind.mainSetCommon(
         key: _supportUpdateEvent,
-        value: update.downloadUrl,
+        value: jsonEncode({
+          'exe_url': update.exeInstaller?.downloadUrl,
+          'msi_url': update.msiInstaller?.downloadUrl,
+          'force': force,
+        }),
       );
     } catch (error) {
       if (mounted) {
@@ -1110,7 +1139,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     }
     showToast(
       success
-          ? 'Aktualizacja została uruchomiona w tle.'
+          ? 'Aktualizacja została uruchomiona w tle; połączenie może się przerwać.'
           : message.isNotEmpty
               ? message
               : 'Nie udało się uruchomić aktualizacji.',
