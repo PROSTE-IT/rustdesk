@@ -1460,6 +1460,24 @@ pub fn copy_exe_cmd(src_exe: &str, exe: &str, path: &str) -> ResultType<String> 
     ))
 }
 
+// Unlike installation, an update must not ignore a locked or uncopied DLL.
+fn copy_exe_cmd_for_update(src_exe: &str, path: &str) -> ResultType<String> {
+    let source_dir = Path::new(src_exe)
+        .parent()
+        .ok_or(anyhow!("Can't get parent directory of {src_exe}"))?;
+    Ok(format!(
+        "
+XCOPY \"{}\" \"{path}\" /Y /E /H /I /K /R /Z
+if errorlevel 1 exit /b 1
+copy /Y \"{ORIGIN_PROCESS_EXE}\" \"{path}\\{broker_exe}\"
+if errorlevel 1 exit /b 1
+        ",
+        source_dir.to_string_lossy(),
+        ORIGIN_PROCESS_EXE = win_topmost_window::ORIGIN_PROCESS_EXE,
+        broker_exe = win_topmost_window::INJECTED_PROCESS_EXE,
+    ))
+}
+
 #[inline]
 pub fn rename_exe_cmd(src_exe: &str, path: &str) -> ResultType<String> {
     let src_exe_filename = PathBuf::from(src_exe)
@@ -3266,6 +3284,34 @@ fn robocopy_succeeded(status: &std::process::ExitStatus) -> bool {
     matches!(status.code(), Some(0..=7))
 }
 
+fn files_match(source: &Path, installed: &Path) -> ResultType<bool> {
+    if fs::metadata(source)?.len() != fs::metadata(installed)?.len() {
+        return Ok(false);
+    }
+    let mut source = io::BufReader::new(fs::File::open(source)?);
+    let mut installed = io::BufReader::new(fs::File::open(installed)?);
+    let mut source_buffer = [0u8; 8192];
+    let mut installed_buffer = [0u8; 8192];
+    loop {
+        let count = source.read(&mut source_buffer)?;
+        if count == 0 {
+            return Ok(true);
+        }
+        installed.read_exact(&mut installed_buffer[..count])?;
+        if source_buffer[..count] != installed_buffer[..count] {
+            return Ok(false);
+        }
+    }
+}
+
+fn checked_service_command(action: &str, app_name: &str) -> String {
+    format!("sc {action} \"{app_name}\"\nif errorlevel 1 exit /b 1")
+}
+
+fn update_taskkill_command(app_name: &str, current_pid: u32) -> String {
+    format!("taskkill /F /IM \"{app_name}.exe\" /FI \"PID ne {current_pid}\"")
+}
+
 fn create_managed_self_update_backup(
     path: &str,
     subkey: &str,
@@ -3411,6 +3457,11 @@ pub fn update_me(debug: bool) -> ResultType<()> {
         .collect::<Vec<_>>();
     kill_process_by_pids(&app_exe_name, tray_pids)?;
     let is_service_running = is_self_service_running();
+    let service_pids_before = if protect_managed_self_install && is_service_running {
+        crate::platform::get_pids_of_process_with_args(&app_exe_name, &["--service"])
+    } else {
+        Vec::new()
+    };
 
     let mut version_major = "0";
     let mut version_minor = "0";
@@ -3446,20 +3497,27 @@ pub fn update_me(debug: bool) -> ResultType<()> {
             "".to_string()
         } else {
             format!(
-                "reg add {} /f /v DisplayIcon /t REG_SZ /d \"{}\"",
+                "reg add \"{}\" /f /v DisplayIcon /t REG_SZ /d \"{}\"\nif errorlevel 1 exit /b 1",
                 subkey, display_icon
             )
         };
         format!(
             "
 {reg_display_icon}
-reg add {subkey} /f /v DisplayVersion /t REG_SZ /d \"{version}\"
-reg add {subkey} /f /v Version /t REG_SZ /d \"{version}\"
-reg add {subkey} /f /v BuildDate /t REG_SZ /d \"{build_date}\"
-reg add {subkey} /f /v VersionMajor /t REG_DWORD /d {version_major}
-reg add {subkey} /f /v VersionMinor /t REG_DWORD /d {version_minor}
-reg add {subkey} /f /v VersionBuild /t REG_DWORD /d {version_build}
-reg add {subkey} /f /v EstimatedSize /t REG_DWORD /d {size}
+reg add \"{subkey}\" /f /v DisplayVersion /t REG_SZ /d \"{version}\"
+if errorlevel 1 exit /b 1
+reg add \"{subkey}\" /f /v Version /t REG_SZ /d \"{version}\"
+if errorlevel 1 exit /b 1
+reg add \"{subkey}\" /f /v BuildDate /t REG_SZ /d \"{build_date}\"
+if errorlevel 1 exit /b 1
+reg add \"{subkey}\" /f /v VersionMajor /t REG_DWORD /d {version_major}
+if errorlevel 1 exit /b 1
+reg add \"{subkey}\" /f /v VersionMinor /t REG_DWORD /d {version_minor}
+if errorlevel 1 exit /b 1
+reg add \"{subkey}\" /f /v VersionBuild /t REG_DWORD /d {version_build}
+if errorlevel 1 exit /b 1
+reg add \"{subkey}\" /f /v EstimatedSize /t REG_DWORD /d {size}
+if errorlevel 1 exit /b 1
         "
         )
     }
@@ -3494,9 +3552,14 @@ reg add {subkey} /f /v EstimatedSize /t REG_DWORD /d {size}
         format!("{}{}", reg_cmd_main, reg_cmd_msi)
     };
 
-    let filter = format!(" /FI \"PID ne {}\"", get_current_pid());
+    let kill_app_cmd = update_taskkill_command(&app_name, get_current_pid());
+    let stop_service_cmd = if is_service_running {
+        checked_service_command("stop", &app_name)
+    } else {
+        String::new()
+    };
     let restore_service_cmd = if is_service_running {
-        format!("sc start {}", &app_name)
+        checked_service_command("start", &app_name)
     } else {
         "".to_owned()
     };
@@ -3528,8 +3591,8 @@ reg add {subkey} /f /v EstimatedSize /t REG_DWORD /d {size}
     let cmds = format!(
         "
 chcp 65001
-sc stop {app_name}
-taskkill /F /IM {app_name}.exe{filter}
+{stop_service_cmd}
+{kill_app_cmd}
 {reg_cmd}
 {copy_exe}
 {rename_exe}
@@ -3539,8 +3602,7 @@ taskkill /F /IM {app_name}.exe{filter}
 {install_printer_cmd}
 {sleep}
     ",
-        app_name = app_name,
-        copy_exe = copy_exe_cmd(&src_exe, &exe, &path)?,
+        copy_exe = copy_exe_cmd_for_update(&src_exe, &path)?,
         rename_exe = rename_exe_cmd(&src_exe, &path)?,
         remove_meta_toml = remove_meta_toml_cmd(is_msi.unwrap_or(true), &path),
         sleep = if debug { "timeout 300" } else { "" },
@@ -3612,14 +3674,29 @@ taskkill /F /IM {app_name}.exe{filter}
 
     let update_result = run_cmds(cmds, debug, "update").and_then(|_| {
         if protect_managed_self_install {
-            let source_size = fs::metadata(&src_exe)?.len();
-            let installed_size = fs::metadata(&exe)?.len();
-            if source_size != installed_size {
-                bail!("Plik zainstalowany po aktualizacji ma nieprawidłowy rozmiar.");
+            if !files_match(Path::new(&src_exe), Path::new(&exe))? {
+                bail!("Plik EXE zainstalowany po aktualizacji różni się od źródłowego.");
+            }
+            let source_dll = Path::new(&src_exe).with_file_name("librustdesk.dll");
+            let installed_dll = Path::new(&path).join("librustdesk.dll");
+            if !files_match(&source_dll, &installed_dll)? {
+                bail!("Biblioteka librustdesk.dll nie została podmieniona.");
             }
             std::thread::sleep(std::time::Duration::from_millis(2000));
-            if is_service_running && !is_self_service_running() {
-                bail!("Usługa nie uruchomiła się po aktualizacji.");
+            if is_service_running {
+                if !is_self_service_running() {
+                    bail!("Usługa nie uruchomiła się po aktualizacji.");
+                }
+                let service_pids_after =
+                    crate::platform::get_pids_of_process_with_args(&app_exe_name, &["--service"]);
+                if service_pids_before.is_empty()
+                    || service_pids_after.is_empty()
+                    || service_pids_after
+                        .iter()
+                        .any(|pid| service_pids_before.contains(pid))
+                {
+                    bail!("Nie można potwierdzić ponownego uruchomienia usługi.");
+                }
             }
         }
         Ok(())
@@ -4687,6 +4764,53 @@ pub(super) fn get_pids_with_first_arg_by_wmic<S1: AsRef<str>, S2: AsRef<str>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_managed_update_commands_quote_names_and_stop_on_copy_errors() {
+        assert_eq!(
+            checked_service_command("stop", "proste IT Helpdesk"),
+            "sc stop \"proste IT Helpdesk\"\nif errorlevel 1 exit /b 1"
+        );
+        assert_eq!(
+            checked_service_command("start", "proste IT Helpdesk"),
+            "sc start \"proste IT Helpdesk\"\nif errorlevel 1 exit /b 1"
+        );
+        assert_eq!(
+            update_taskkill_command("proste IT Helpdesk", 42),
+            "taskkill /F /IM \"proste IT Helpdesk.exe\" /FI \"PID ne 42\""
+        );
+        let copy = copy_exe_cmd_for_update(
+            r"C:\staging\proste IT Helpdesk.exe",
+            r"C:\Program Files\proste IT Helpdesk",
+        )
+        .unwrap();
+        assert!(copy.contains("XCOPY \"C:\\staging\" \"C:\\Program Files\\proste IT Helpdesk\""));
+        assert!(!copy.contains(" /C "));
+        assert_eq!(copy.matches("if errorlevel 1 exit /b 1").count(), 2);
+    }
+
+    #[test]
+    fn test_files_match_checks_contents_not_only_size() {
+        let root = std::env::temp_dir().join(format!(
+            "rustdesk-update-file-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let source = root.join("source.dll");
+        let installed = root.join("installed.dll");
+        fs::write(&source, b"new-core").unwrap();
+        fs::write(&installed, b"new-core").unwrap();
+        assert!(files_match(&source, &installed).unwrap());
+        fs::write(&installed, b"old-core").unwrap();
+        assert!(!files_match(&source, &installed).unwrap());
+        fs::write(&installed, b"short").unwrap();
+        assert!(!files_match(&source, &installed).unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
 
     // Test-only reusable Win32 HANDLE RAII helper.
     // If a future non-test path needs the same pattern, move it out of this test module.
