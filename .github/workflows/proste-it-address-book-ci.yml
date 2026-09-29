@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feature/shared-address-book-client
+      - release/1.4.9-pit
     paths:
       - build.py
       - res/msi/preprocess.py
